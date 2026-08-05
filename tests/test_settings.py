@@ -154,3 +154,25 @@ def test_load_default_base_dir_uses_appdata(monkeypatch, tmp_path):
 
     expected_path = os.path.join(str(tmp_path), "MVR Enhancer", "config.json")
     assert os.path.isfile(expected_path)
+
+
+def test_export_layer_mode_roundtrip(tmp_path):
+    s = Settings.load(str(tmp_path))
+    assert s.export_layer_mode == "single"
+    s.export_layer_mode = "per_layer"
+    s.save()
+    assert Settings.load(str(tmp_path)).export_layer_mode == "per_layer"
+
+
+def test_export_layer_mode_invalid_value_normalized(tmp_path):
+    (tmp_path / "config.json").write_text(
+        '{"export_layer_mode": "banane"}', encoding="utf-8"
+    )
+    assert Settings.load(str(tmp_path)).export_layer_mode == "single"
+
+
+def test_export_layer_mode_non_string_normalized(tmp_path):
+    (tmp_path / "config.json").write_text(
+        '{"export_layer_mode": 7}', encoding="utf-8"
+    )
+    assert Settings.load(str(tmp_path)).export_layer_mode == "single"

@@ -27,6 +27,7 @@ class Settings:
     gdtf_library_dir: str = ""
     last_export_dir: str = ""
     group_by_position: bool = True
+    export_layer_mode: str = "single"
     share_user: str = ""
     share_password_enc: str = ""
     base_dir: str = dataclasses.field(default="", repr=False, compare=False)
@@ -69,6 +70,8 @@ class Settings:
             ][:_MAX_RECENT_FILES]
 
         settings = cls(**kwargs)
+        if settings.export_layer_mode not in ("single", "per_layer"):
+            settings.export_layer_mode = "single"
         settings.base_dir = resolved_base_dir
         return settings
 
@@ -83,6 +86,7 @@ class Settings:
             "gdtf_library_dir": self.gdtf_library_dir,
             "last_export_dir": self.last_export_dir,
             "group_by_position": self.group_by_position,
+            "export_layer_mode": self.export_layer_mode,
             "share_user": self.share_user,
             "share_password_enc": self.share_password_enc,
         }
