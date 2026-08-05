@@ -295,15 +295,31 @@ button { font: inherit; }
   cursor: pointer;
   background: rgba(8, 19, 31, 0.35);
   transition: border-color 200ms, background 200ms;
+  position: relative;
+  overflow: hidden;
 }
 .dropzone:hover,
 .dropzone.drag-over {
   border-color: var(--blue-300);
   background: rgba(8, 19, 31, 0.55);
 }
+.dropzone > .icon,
+.dropzone-title,
+.dropzone-sub { position: relative; z-index: 1; }
 .dropzone-title { margin-top: 14px; font-size: 18px; font-weight: 600; color: var(--white); }
 .dropzone-sub { margin-top: 4px; font-size: 14px; color: var(--text-inverse-muted); }
 .dropzone:focus-visible { border-color: var(--blue-300); outline: none; }
+.dropzone-fill {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: rgba(30, 124, 196, 0.35); /* --blue-600 @ 35% */
+  transform: scaleX(0);
+  transform-origin: left center;
+  pointer-events: none;
+}
+.dropzone.loading { cursor: default; }
+.dropzone.loading .dropzone-sub { visibility: hidden; }
 
 .card {
   background: var(--surface-card-dark);

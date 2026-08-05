@@ -44,6 +44,10 @@
   var exporting = false;
   var pendingLoginModal = false;
   var autoAdvanceTimer = null;
+  var dzLoad = { active: false, startTs: 0, finishTimer: null };
+  var DZ_MIN_MS = 1000;
+  var DZ_TITLE_IDLE = "MVR-Datei hier ablegen";
+  var DZ_TITLE_LOADING = "Lade …";
   var searchDebounceTimer = null;
   var toasts = [];
   var toastSeq = 0;
@@ -132,6 +136,7 @@
   // event as soon as the dialog has returned; the watchdog is armed on THAT.
   var WATCHDOG_ARM_ON_PROGRESS = {
     run_export: true,
+    load_mvr: true,
   };
 
   // Silent UI reset run when a watchdog fires OR when a toast arrives
@@ -142,6 +147,7 @@
       exporting = false;
       render();
     },
+    load_mvr: dzReset,
     share_login: function () {
       pendingLoginModal = false;
     },
@@ -258,7 +264,12 @@
     serverState = newState;
 
     if (!wasLoaded && newState.mvr_loaded) {
-      scheduleAutoAdvance();
+      if (dzLoad.active) {
+        var elapsed = Date.now() - dzLoad.startTs;
+        setTimeout(dzFinish, Math.max(0, DZ_MIN_MS - elapsed));
+      } else {
+        scheduleAutoAdvance();
+      }
     } else if (wasLoaded && !newState.mvr_loaded) {
       cancelAutoAdvance();
     }
@@ -317,10 +328,8 @@
         handleToastEvent(evt);
         break;
       case "progress":
-        // No dedicated progress UI in this iteration. The event does carry
-        // one responsibility though: it arms the watchdog for ops that were
-        // waiting on a blocking native dialog (see WATCHDOG_ARM_ON_PROGRESS).
         if (evt.method && WATCHDOG_ARM_ON_PROGRESS[evt.method]) armWatchdog(evt.method);
+        if (evt.method === "load_mvr" && evt.data && evt.data.phase === "start") dzStart();
         break;
       default:
         break;
@@ -630,9 +639,54 @@
 
   // ──── Section 1 · Quelle ────
 
+  function dzStart() {
+    if (dzLoad.finishTimer) { clearTimeout(dzLoad.finishTimer); dzLoad.finishTimer = null; }
+    dzLoad.active = true;
+    dzLoad.startTs = Date.now();
+    var zone = $("dropzone"), fill = $("dropzone-fill");
+    zone.classList.add("loading");
+    zone.classList.remove("hidden");
+    $("dropzone-title").textContent = DZ_TITLE_LOADING;
+    fill.style.transition = "none";
+    fill.style.transform = "scaleX(0)";
+    // Reflow erzwingen, damit die folgende Transition ab 0 startet:
+    void fill.offsetWidth;
+    fill.style.transition = "transform 1000ms linear";
+    fill.style.transform = "scaleX(0.9)";
+  }
+
+  function dzReset() {
+    if (dzLoad.finishTimer) { clearTimeout(dzLoad.finishTimer); dzLoad.finishTimer = null; }
+    dzLoad.active = false;
+    var zone = $("dropzone"), fill = $("dropzone-fill");
+    zone.classList.remove("loading");
+    $("dropzone-title").textContent = DZ_TITLE_IDLE;
+    fill.style.transition = "none";
+    fill.style.transform = "scaleX(0)";
+    render();
+  }
+
+  function dzFinish() {
+    // Erfolgsfall: auf 100 % fuellen, kurz stehen lassen, dann umschalten.
+    var fill = $("dropzone-fill");
+    fill.style.transition = "transform 150ms ease-out";
+    fill.style.transform = "scaleX(1)";
+    dzLoad.finishTimer = setTimeout(function () {
+      dzLoad.finishTimer = null;
+      dzLoad.active = false;
+      $("dropzone").classList.remove("loading");
+      $("dropzone-title").textContent = DZ_TITLE_IDLE;
+      fill.style.transition = "none";
+      fill.style.transform = "scaleX(0)";
+      render();
+      scheduleAutoAdvance();
+    }, 200);
+  }
+
   function renderSection1(s) {
-    $("dropzone").classList.toggle("hidden", s.mvr_loaded);
-    $("filecard-block").classList.toggle("hidden", !s.mvr_loaded);
+    var showDropzone = !s.mvr_loaded || dzLoad.active;
+    $("dropzone").classList.toggle("hidden", !showDropzone);
+    $("filecard-block").classList.toggle("hidden", !s.mvr_loaded || dzLoad.active);
 
     if (s.mvr_loaded) {
       $("filecard-name").textContent = s.file_meta.name || "";
@@ -994,12 +1048,14 @@
     // Section 1 — dropzone
     var dropzone = $("dropzone");
     dropzone.addEventListener("click", function () {
+      if (dzLoad.active) return;
       callApi("choose_mvr");
     });
     // The prototype's dropzone carries no button, so it is the only way into
     // the file dialog — keep it keyboard-operable (role=button + tabindex in
     // index.html).
     dropzone.addEventListener("keydown", function (e) {
+      if (dzLoad.active) return;
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         callApi("choose_mvr");
