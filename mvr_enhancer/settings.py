@@ -66,7 +66,7 @@ class Settings:
             kwargs["recent_files"] = [
                 entry for entry in recent_files
                 if isinstance(entry, dict) and "path" in entry and "ts" in entry
-            ]
+            ][:_MAX_RECENT_FILES]
 
         settings = cls(**kwargs)
         settings.base_dir = resolved_base_dir

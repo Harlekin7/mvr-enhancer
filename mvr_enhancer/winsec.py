@@ -81,12 +81,13 @@ def encrypt_password(password: str) -> str:
     """Verschluesselt ein Passwort und gibt es als Base64-String zurueck.
 
     Format: 'dpapi:' + Base64-kodierte verschluesselte Daten.
-    Leere Eingabe ergibt einen leeren String (kein Fehler).
-    Auf Nicht-Windows-Plattformen wird ``ValueError`` geworfen.
+    Leere Eingabe ergibt ueberall (auch auf Nicht-Windows) einen leeren
+    String zurueck (kein Fehler). Fuer nicht-leere Eingaben wird auf
+    Nicht-Windows-Plattformen ``ValueError`` geworfen.
     """
-    _require_windows()
     if not password:
         return ""
+    _require_windows()
     try:
         encrypted = _encrypt_dpapi(password.encode("utf-8"))
         return "dpapi:" + base64.b64encode(encrypted).decode("ascii")
@@ -100,11 +101,13 @@ def decrypt_password(stored: str) -> str:
 
     Erkennt das 'dpapi:'-Praefix und entschluesselt entsprechend.
     Klartext-Passwoerter (ohne Praefix) werden abgelehnt.
-    Auf Nicht-Windows-Plattformen wird ``ValueError`` geworfen.
+    Leere Eingabe ergibt ueberall (auch auf Nicht-Windows) einen leeren
+    String zurueck (kein Fehler). Fuer nicht-leere Eingaben wird auf
+    Nicht-Windows-Plattformen ``ValueError`` geworfen.
     """
-    _require_windows()
     if not stored:
         return ""
+    _require_windows()
     if not stored.startswith("dpapi:"):
         log.error("Unverschluesseltes Passwort in Config gefunden [REDACTED] — "
                   "wird ignoriert. Bitte Passwort neu eingeben.")

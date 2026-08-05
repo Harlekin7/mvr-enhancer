@@ -39,3 +39,10 @@ def test_non_windows_raises_value_error(monkeypatch):
         winsec.encrypt_password("x")
     with pytest.raises(ValueError):
         winsec.decrypt_password("dpapi:abc")
+
+
+def test_non_windows_empty_string_roundtrip_still_works(monkeypatch):
+    monkeypatch.setattr(winsec.sys, "platform", "linux")
+
+    assert winsec.encrypt_password("") == ""
+    assert winsec.decrypt_password("") == ""

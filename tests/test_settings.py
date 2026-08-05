@@ -99,6 +99,21 @@ def test_unknown_keys_are_ignored(tmp_path):
     assert not hasattr(settings, "totally_unknown_key")
 
 
+def test_load_enforces_max_five_recent_files(tmp_path):
+    base_dir = str(tmp_path)
+    config_path = os.path.join(base_dir, "config.json")
+    entries = [{"path": f"C:/file{i}.mvr", "ts": "2026-01-01T00:00:00+00:00"} for i in range(9)]
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump({"recent_files": entries}, f)
+
+    settings = Settings.load(base_dir)
+
+    assert len(settings.recent_files) == 5
+    assert [e["path"] for e in settings.recent_files] == [
+        "C:/file0.mvr", "C:/file1.mvr", "C:/file2.mvr", "C:/file3.mvr", "C:/file4.mvr",
+    ]
+
+
 def test_add_recent_dedupes_case_insensitive_and_moves_to_front(tmp_path):
     settings = Settings.load(str(tmp_path))
     settings.add_recent("C:/a.mvr")
