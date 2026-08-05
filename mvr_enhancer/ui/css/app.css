@@ -255,6 +255,10 @@ button { font: inherit; }
 /* Schritt 1 · Quelle                                                 */
 /* ================================================================ */
 .dropzone {
+  /* The prototype has no border-box reset, so its `min-height:220px` is a
+     CONTENT height and the zone renders 288px tall (220 + 2×32 padding +
+     2×2 border). content-box here reproduces that exactly. */
+  box-sizing: content-box;
   min-height: 220px;
   display: flex;
   flex-direction: column;
@@ -275,7 +279,7 @@ button { font: inherit; }
 }
 .dropzone-title { margin-top: 14px; font-size: 18px; font-weight: 600; color: var(--white); }
 .dropzone-sub { margin-top: 4px; font-size: 14px; color: var(--text-inverse-muted); }
-.dropzone-choose { margin-top: 16px; }
+.dropzone:focus-visible { border-color: var(--blue-300); outline: none; }
 
 .card {
   background: var(--surface-card-dark);
@@ -283,7 +287,9 @@ button { font: inherit; }
   border-radius: var(--radius-lg);
 }
 
-.filecard-block { flex: none; }
+/* File card and security line are siblings in the prototype's 16px-gap flex
+   column, so the line sits 16 + 12 = 28px below the card. */
+.filecard-block { flex: none; display: flex; flex-direction: column; gap: 16px; }
 .filecard {
   padding: 20px 24px;
   display: flex;
@@ -383,24 +389,31 @@ button { font: inherit; }
 .match-table { display: grid; width: 100%; border-collapse: collapse; }
 .match-table thead,
 .match-table tbody { display: contents; }
+/* Padding, hairline, background and stickiness live on the ROW (not the cells):
+   the prototype's row is a single grid div, so its bottom border and header
+   band run uninterrupted across the 16px column gaps. */
 .match-table tr {
   display: grid;
   grid-template-columns: minmax(190px, 1.2fr) minmax(230px, 1.6fr) 84px minmax(180px, 1.1fr) 120px;
   gap: 0 16px;
   align-items: center;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border-dark);
 }
 .match-table th,
 .match-table td {
-  padding: 10px 20px;
-  border-bottom: 1px solid var(--border-dark);
+  padding: 0;
+  min-width: 0;
   text-align: left;
   font-weight: normal;
 }
-.match-table thead th {
+.match-table thead tr {
   position: sticky;
   top: 0;
   z-index: 2;
   background: var(--navy-900);
+}
+.match-table thead th {
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.12em;
@@ -412,7 +425,10 @@ button { font: inherit; }
 .type-name { font-weight: 600; font-size: 14.5px; color: var(--white); }
 .type-meta { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-inverse-muted); margin-top: 2px; }
 
-.modus-cell { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* The FALLBACK label sits BESIDE the mode select (prototype), so the select
+   has to be allowed to shrink instead of pushing the label onto a new line. */
+.modus-cell { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; }
+.modus-cell select { min-width: 0; }
 .fallback-label {
   color: var(--amber-500);
   font-size: 11px;
@@ -461,7 +477,17 @@ button { font: inherit; }
 
 .export-stats { display: flex; gap: 40px; flex-wrap: wrap; padding: 4px 0 20px; }
 .stat { display: flex; flex-direction: column; gap: 6px; }
-.stat-value { font-family: var(--font-display); font-weight: 700; font-size: 28px; line-height: 1; color: var(--blue-300); }
+/* Design-system Stat: value = clamp(44px, 6vw, 72px). At the 1280px window
+   72px makes the four stats wrap onto two rows (the prototype does exactly
+   that, and it breaks its own layout) — so we pin the ramp's 44px floor. */
+.stat-value {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 44px;
+  line-height: 1;
+  letter-spacing: var(--tracking-display);
+  color: var(--blue-300);
+}
 .stat-label {
   font-family: var(--font-heading);
   font-size: 13px;
@@ -487,8 +513,8 @@ button { font: inherit; }
 .warn-row.neutral { border: 1px solid var(--border-dark); color: var(--text-inverse-muted); }
 
 .export-panel { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
-.export-panel-pre,
-.export-panel-post { display: flex; flex-direction: column; gap: 14px; }
+.export-panel-pre { display: flex; flex-direction: column; gap: 14px; }
+.export-panel-post { display: flex; flex-direction: column; gap: 12px; }
 .export-target-label { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-inverse-muted); margin-bottom: 4px; }
 .export-target-path { font-family: var(--font-mono); font-size: 12.5px; color: var(--white); word-break: break-all; }
 .export-uuid-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: var(--text-inverse-muted); }
@@ -635,7 +661,7 @@ input.sel-dark:focus { border-color: var(--blue-400); }
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(8, 19, 31, 0.7);
+  background: var(--surface-overlay);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -790,6 +790,43 @@
     };
   }
 
+  function cleanupRowHtml(cp) {
+    var parts = [cp.removed_fixture_count + " Fixtures entfernt"];
+    if (cp.open_type_names.length) parts.push(cp.open_type_names.length + " offene Typen");
+    parts.push(cp.orphan_gdtf_names.length + " verwaiste GDTFs verworfen");
+    return (
+      '<div class="warn-row neutral">' + iconSpanHtml("list-checks", "ic-16 ic-blue300") +
+      "<span>" + parts.join(" · ") + "</span></div>"
+    );
+  }
+
+  /**
+   * Post-export view (prototype / handoff §Schritt 3 "Nach dem Export"):
+   * the individual warnings are replaced by the cleanup list plus ONE amber
+   * line summarising what the report recorded.
+   */
+  function renderExportedWarnStack(w) {
+    var rows = [];
+    if (w.cleanup_preview) rows.push(cleanupRowHtml(w.cleanup_preview));
+    var summary = w.fallbacks
+      .map(function (fb) {
+        return "Modus-Fallback (" + esc(fb.type_name) + ")";
+      })
+      .concat(
+        w.collisions.map(function (col) {
+          return "Adress-Kollision Universum " + col.universe;
+        })
+      );
+    if (summary.length) {
+      rows.push(
+        '<div class="warn-row amber">' + iconSpanHtml("triangle-alert", "ic-16 ic-amber") +
+        "<span><b>" + summary.length + " Warnungen im Report vermerkt:</b> " +
+        summary.join(" · ") + ".</span></div>"
+      );
+    }
+    $("warn-stack").innerHTML = rows.join("");
+  }
+
   function renderWarnStack(w) {
     var rows = [];
     w.fallbacks.forEach(function (fb) {
@@ -807,16 +844,7 @@
         col.fixture_names.map(esc).join(" / ") + ").</span></div>"
       );
     });
-    if (w.cleanup_preview) {
-      var cp = w.cleanup_preview;
-      var parts = [cp.removed_fixture_count + " Fixtures entfernt"];
-      if (cp.open_type_names.length) parts.push(cp.open_type_names.length + " offene Typen");
-      parts.push(cp.orphan_gdtf_names.length + " verwaiste GDTFs verworfen");
-      rows.push(
-        '<div class="warn-row neutral">' + iconSpanHtml("list-checks", "ic-16 ic-blue300") +
-        "<span>" + parts.join(" · ") + "</span></div>"
-      );
-    }
+    if (w.cleanup_preview) rows.push(cleanupRowHtml(w.cleanup_preview));
     $("warn-stack").innerHTML = rows.join("");
   }
 
@@ -846,7 +874,11 @@
     $("es-meshes").textContent = stats.meshes;
     $("es-positions").textContent = stats.positions;
 
-    renderWarnStack(s.warnings);
+    if (s.export.done) {
+      renderExportedWarnStack(s.warnings);
+    } else {
+      renderWarnStack(s.warnings);
+    }
 
     $("export-panel-pre").classList.toggle("hidden", s.export.done);
     $("export-panel-post").classList.toggle("hidden", !s.export.done);
@@ -891,6 +923,15 @@
     var dropzone = $("dropzone");
     dropzone.addEventListener("click", function () {
       callApi("choose_mvr");
+    });
+    // The prototype's dropzone carries no button, so it is the only way into
+    // the file dialog — keep it keyboard-operable (role=button + tabindex in
+    // index.html).
+    dropzone.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        callApi("choose_mvr");
+      }
     });
     dropzone.addEventListener("dragover", function (e) {
       e.preventDefault();
