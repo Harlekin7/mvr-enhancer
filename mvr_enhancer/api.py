@@ -483,6 +483,35 @@ class Api:
 
         return {"ok": True, "data": self.get_state()["data"]}
 
+    def on_dropzone_drop(self, event) -> None:
+        """pywebview-DOM-Drop auf #dropzone (laeuft in einem pywebview-Thread).
+
+        Der einzige Weg, an den nativen Dateipfad zu kommen: pywebview
+        injiziert ``pywebviewFullPath`` nur in die an Python serialisierte
+        Event-Kopie, nie ins JS-File-Objekt. Wirft nie — Fehler enden als
+        Log + Toast, die App bleibt per Dialog bedienbar.
+        """
+        try:
+            data_transfer = event.get("dataTransfer") if isinstance(event, dict) else None
+            files = data_transfer.get("files") if isinstance(data_transfer, dict) else None
+            if isinstance(files, list):
+                for dropped in files:
+                    if not isinstance(dropped, dict):
+                        continue
+                    path = dropped.get("pywebviewFullPath") or ""
+                    name = dropped.get("name") or path
+                    if path and str(name).lower().endswith(".mvr"):
+                        self.load_mvr(path)
+                        return
+            self._emit({
+                "type": "toast",
+                "method": "dropzone",
+                "level": "info",
+                "message": "Bitte eine .mvr-Datei ablegen.",
+            })
+        except Exception:
+            log.exception("Drop-Verarbeitung fehlgeschlagen")
+
     def remove_mvr(self) -> dict:
         try:
             with self._lock:

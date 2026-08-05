@@ -1008,15 +1008,12 @@
       dropzone.classList.remove("drag-over");
     });
     dropzone.addEventListener("drop", function (e) {
+      // Nur Optik: das Laden uebernimmt der Python-seitige DOM-Listener
+      // (main.py) — pywebview reicht Dateipfade ausschliesslich an Python
+      // durch, ein JS-seitiger pywebviewFullPath-Zugriff ist prinzipbedingt
+      // immer leer.
       e.preventDefault();
       dropzone.classList.remove("drag-over");
-      var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-      var path = file && file.pywebviewFullPath;
-      if (path) {
-        callApi("load_mvr", path);
-      } else {
-        pushToast("info", "Bitte über den Dialog wählen");
-      }
     });
 
     $("btn-remove").addEventListener("click", function (e) {

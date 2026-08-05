@@ -275,6 +275,56 @@ def test_load_mvr_emits_progress_start_event(tmp_path):
     assert progress and progress[0]["data"]["phase"] == "start"
 
 
+# ──── test_dropzone_drop ────
+
+
+def _drop_event(files):
+    return {"dataTransfer": {"files": files}}
+
+
+def test_dropzone_drop_loads_first_mvr(tmp_path):
+    library_dir = _setup_library(tmp_path)
+    mvr_path = build_mvr(tmp_path / "d.mvr", fixtures=[{"name": "Spot 1", "address": 1}])
+    api = _make_api(tmp_path, library_dir)
+
+    api.on_dropzone_drop(_drop_event([
+        {"name": "readme.txt", "pywebviewFullPath": str(tmp_path / "readme.txt")},
+        {"name": "d.mvr", "pywebviewFullPath": str(mvr_path)},
+    ]))
+
+    assert api.get_state()["data"]["mvr_loaded"] is True
+
+
+def test_dropzone_drop_without_mvr_shows_info_toast(tmp_path):
+    api = _make_api(tmp_path)
+
+    api.on_dropzone_drop(_drop_event([{"name": "bild.png", "pywebviewFullPath": "C:/x/bild.png"}]))
+
+    toasts = [e for e in api.events if e.get("type") == "toast"]
+    assert toasts and toasts[-1]["level"] == "info"
+    assert toasts[-1]["method"] == "dropzone"
+    assert api.get_state()["data"]["mvr_loaded"] is False
+
+
+def test_dropzone_drop_ignores_file_without_full_path(tmp_path):
+    # WebView2 liefert ohne registrierten Listener/bei Sonderfaellen kein
+    # pywebviewFullPath — dann Toast statt Absturz.
+    api = _make_api(tmp_path)
+
+    api.on_dropzone_drop(_drop_event([{"name": "d.mvr"}]))
+
+    toasts = [e for e in api.events if e.get("type") == "toast"]
+    assert toasts and toasts[-1]["level"] == "info"
+
+
+def test_dropzone_drop_malformed_event_never_raises(tmp_path):
+    api = _make_api(tmp_path)
+
+    api.on_dropzone_drop(None)
+    api.on_dropzone_drop({})
+    api.on_dropzone_drop({"dataTransfer": {"files": "kaputt"}})
+
+
 # ──── test_run_export_writes_file_and_report ────
 
 
