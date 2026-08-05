@@ -232,6 +232,49 @@ def test_prepare_export_warnings(tmp_path):
     assert collision["universe"] == 1
 
 
+# ──── test_layer_mode_in_state_and_setter ────
+
+
+def test_layer_mode_in_state_and_setter(tmp_path):
+    api = _make_api(tmp_path)
+    assert api.get_state()["data"]["layer_mode"] == "single"
+
+    result = api.set_layer_mode("per_layer")
+    assert result["ok"] and result["data"]["layer_mode"] == "per_layer"
+    # persistiert:
+    assert api._settings.export_layer_mode == "per_layer"
+
+    reloaded = Settings.load(api._settings.base_dir)
+    assert reloaded.export_layer_mode == "per_layer"
+
+
+def test_set_layer_mode_rejects_unknown_value(tmp_path):
+    api = _make_api(tmp_path)
+    result = api.set_layer_mode("banane")
+    assert not result["ok"]
+    assert api.get_state()["data"]["layer_mode"] == "single"
+
+
+# ──── test_load_mvr_emits_progress_start_event ────
+
+
+def test_load_mvr_emits_progress_start_event(tmp_path):
+    library_dir = _setup_library(tmp_path)
+    mvr_path = build_mvr(
+        tmp_path / "a.mvr",
+        fixtures=[{"name": "Spot 1", "address": 1}],
+    )
+
+    api = _make_api(tmp_path, library_dir)
+    api.load_mvr(str(mvr_path))
+
+    progress = [
+        e for e in api.events
+        if e.get("type") == "progress" and e.get("method") == "load_mvr"
+    ]
+    assert progress and progress[0]["data"]["phase"] == "start"
+
+
 # ──── test_run_export_writes_file_and_report ────
 
 
@@ -262,6 +305,39 @@ def test_run_export_writes_file_and_report(tmp_path):
     state = api.get_state()["data"]
     assert state["export"]["done"] is True
     assert state["export"]["path"] == str(export_path)
+
+
+# ──── test_run_export_passes_layer_mode ────
+
+
+def test_run_export_passes_layer_mode(tmp_path, monkeypatch):
+    library_dir = _setup_library(tmp_path)
+
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[
+            {"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111", "address": 1},
+        ],
+    )
+
+    api = _make_api(tmp_path, library_dir)
+    api.load_mvr(str(mvr_path))
+    api.set_layer_mode("per_layer")
+
+    captured = {}
+    real = api_module.enrich_mvr
+
+    def spy(*args, **kwargs):
+        captured.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(api_module, "enrich_mvr", spy)
+
+    export_path = tmp_path / "out" / "scene_MA3.mvr"
+    result = api.run_export(str(export_path))
+
+    assert result["ok"] is True
+    assert captured.get("layer_mode") == "per_layer"
 
 
 # ──── test_recent_persisted ────
@@ -520,14 +596,17 @@ def test_threaded_mode_pushes_state_result_and_toast_events(tmp_path, monkeypatc
     assert len(result_events) == 1
     assert result_events[0]["data"]["mvr_loaded"] is True
 
-    # Failure path: a bogus path must push exactly a "toast" event.
+    # Failure path: a bogus path must push a "progress"/"start" event (every
+    # load_mvr announces its start, success or not) followed by a "toast".
     window.evaluated.clear()
     api.load_mvr(str(tmp_path / "does-not-exist.mvr"))
     api._last_thread.join(timeout=5)
     events = _parsed_events(window)
-    assert len(events) == 1
-    assert events[0]["type"] == "toast"
-    assert events[0]["level"] == "error"
+    assert len(events) == 2
+    assert events[0]["type"] == "progress"
+    assert events[0]["data"]["phase"] == "start"
+    assert events[1]["type"] == "toast"
+    assert events[1]["level"] == "error"
 
     # share_search's "result" event must carry the actual search hits.
     def fake_request(method, slug, params=None, data=None):

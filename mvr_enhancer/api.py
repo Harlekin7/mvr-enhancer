@@ -129,6 +129,7 @@ class Api:
         self._active_step = 0
 
         self._grouping = self._settings.group_by_position
+        self._layer_mode = self._settings.export_layer_mode
         # Konstruktion bleibt schnell und offline: kein Bibliotheks-Scan, kein
         # Netzwerk-Login hier — beides wird von set_window() im Hintergrund
         # nachgeholt, sobald ein Fenster (und damit ein Event-Ziel) existiert.
@@ -282,6 +283,7 @@ class Api:
                     "stats": serialize(self._stats) if self._stats is not None else None,
                     "types": types_out,
                     "grouping": self._grouping,
+                    "layer_mode": self._layer_mode,
                     "share": {
                         "logged_in": self._share.logged_in,
                         "user": self._settings.share_user,
@@ -393,6 +395,7 @@ class Api:
         return self._run_long("load_mvr", lambda: self._do_load_mvr(path))
 
     def _do_load_mvr(self, path: str) -> dict:
+        self._emit({"type": "progress", "method": "load_mvr", "data": {"phase": "start"}})
         if not path or not os.path.isfile(path):
             return {"ok": False, "error": "Diese Datei wurde nicht gefunden. Pruef bitte den Pfad."}
 
@@ -464,6 +467,7 @@ class Api:
             self._library_dir = library_dir
             self._gdtf_library = gdtf_library
             self._grouping = self._settings.group_by_position
+            self._layer_mode = self._settings.export_layer_mode
             self._warnings = dict(_EMPTY_WARNINGS)
             self._export_state = dict(_EMPTY_EXPORT_STATE)
             self._file_meta = file_meta
@@ -585,6 +589,20 @@ class Api:
         except Exception as e:
             log.exception("set_grouping fehlgeschlagen")
             return {"ok": False, "error": f"Gruppierung konnte nicht gesetzt werden: {e}"}
+
+    def set_layer_mode(self, mode: str) -> dict:
+        """Setzt den Export-Layer-Modus (``"single"`` oder ``"per_layer"``) und persistiert ihn."""
+        try:
+            if mode not in ("single", "per_layer"):
+                return {"ok": False, "error": "Unbekannter Export-Modus."}
+            with self._lock:
+                self._layer_mode = mode
+                self._settings.export_layer_mode = mode
+                self._settings.save()
+            return {"ok": True, "data": self.get_state()["data"]}
+        except Exception as e:
+            log.exception("set_layer_mode fehlgeschlagen")
+            return {"ok": False, "error": f"Export-Modus konnte nicht gesetzt werden: {e}"}
 
     # ──── GDTF-Bibliothek ────
 
@@ -837,6 +855,7 @@ class Api:
             library_dir_snapshot = self._library_dir
             gdtf_library_snapshot = self._gdtf_library
             grouping_snapshot = self._grouping
+            layer_mode_snapshot = self._layer_mode
             default_path_snapshot = self._default_export_path()
 
         if not path:
@@ -895,6 +914,7 @@ class Api:
                 library_dir_snapshot,
                 gdtf_library_snapshot,
                 group_by_position=grouping_snapshot,
+                layer_mode=layer_mode_snapshot,
             )
         except Exception as e:
             log.exception("Export fehlgeschlagen")
