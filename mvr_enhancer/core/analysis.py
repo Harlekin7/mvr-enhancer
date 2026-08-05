@@ -115,6 +115,9 @@ def aggregate_fixture_types(scene: MvrScene) -> list[FixtureType]:
         if len(positions) > 3:
             meta_line += " …"
 
+        # Ties (multiple names with the same max count) resolve to whichever
+        # name was encountered first, since Counter.most_common is stable and
+        # insertion-ordered for equal counts.
         name_counts = Counter(f.name for f in fixtures)
         display_name = name_counts.most_common(1)[0][0]
 
@@ -186,6 +189,16 @@ def detect_address_collisions(
         if not footprint:
             continue
 
+        # dmx_address == 0 is mvr_reader's default for a fixture with no (or
+        # an unparsable) <Address> — not a real address 1. Without this guard
+        # divmod(-1, 512) wraps to (universe -1, channel 511), which would
+        # falsely land unpatched fixtures in a bogus "universe 0" cluster.
+        if fixture.dmx_address <= 0:
+            continue
+
+        # NOTE: known limitation — a footprint that would cross a 512-channel
+        # universe boundary is not split across universes; the whole interval
+        # is attributed to the start address's universe.
         universe_index, channel_index = divmod(fixture.dmx_address - 1, _DMX_CHANNELS_PER_UNIVERSE)
         start_channel = channel_index + 1
         end_channel = start_channel + footprint - 1
