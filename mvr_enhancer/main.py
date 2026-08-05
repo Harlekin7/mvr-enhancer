@@ -30,6 +30,9 @@ def run() -> None:
     logging.basicConfig(level=logging.INFO)
 
     ui_path = _ui_path()
+    if not ui_path.is_file():
+        log.error("UI-Datei nicht gefunden: %s", ui_path)
+
     api = Api()
 
     window = webview.create_window(

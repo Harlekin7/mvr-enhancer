@@ -228,6 +228,73 @@ def _reorganize_layers(
     return root, position_group_count
 
 
+def compute_gdtf_references(
+    scene: MvrScene,
+    assignments: dict[str, Assignment],
+    gdtf_library_dir: str,
+    gdtf_library: dict[str, GdtfFixture],
+) -> set[str]:
+    """Berechnet, ohne den Export-Baum zu bauen, welche GDTFSpec-Referenzen
+    ein ``enrich_mvr``-Lauf mit denselben Parametern im exportierten Baum
+    hinterlassen wuerde.
+
+    Deckt zwei Faelle ab, die sich rein aus ``assignments`` nicht ablesen
+    lassen:
+
+    - Eine zugeordnete Fixture, deren ``Assignment.gdtf_name`` sich zu keiner
+      Bibliotheksdatei aufloesen laesst: ``_update_fixture_element`` laesst
+      deren *urspruengliches* ``GDTFSpec`` in diesem Fall unangetastet — das
+      referenzierte eingebettete GDTF ueberlebt also trotz fehlgeschlagener
+      Aufloesung.
+    - In opaken Nicht-Fixture-Elementen verschachtelte Fixtures (z. B. ein
+      ``<Fixture>`` innerhalb ``<SceneObject>``): ``mvr_reader`` erfasst sie
+      nicht als ``MvrFixture``, sie werden aber unveraendert in die "3D"-
+      Gruppe uebernommen und referenzieren ihr GDTF weiterhin gueltig.
+
+    Wird sowohl von ``enrich_mvr`` selbst (Orphan-Bereinigung) als auch von
+    der API-Export-Vorschau (``api.Api.prepare_export`` -> ``cleanup_preview``)
+    genutzt, damit beide nicht auseinanderlaufen koennen.
+    """
+    fixtures_by_type: dict[str, list[MvrFixture]] = {}
+    for fixture in scene.fixtures:
+        key = _normalize(fixture.name)
+        assignment = assignments.get(key)
+        if assignment is None or not assignment.gdtf_name or assignment.removed:
+            continue
+        fixtures_by_type.setdefault(key, []).append(fixture)
+
+    reference_keys: set[str] = set()
+
+    for key, fixtures_of_type in fixtures_by_type.items():
+        assignment = assignments[key]
+        gdtf_name = assignment.gdtf_name or ""
+
+        exact_match = gdtf_library.get(gdtf_name) if gdtf_name else None
+        matched = exact_match
+        if matched is None and gdtf_name:
+            matched = find_matching_gdtf(gdtf_name, gdtf_library, {})
+
+        abs_path = find_gdtf_file(
+            gdtf_name, gdtf_library_dir, gdtf_library, {}, matched=matched,
+        )
+        if abs_path and os.path.isfile(abs_path):
+            zip_name = _clean_gdtf_name(os.path.basename(abs_path))
+            reference_keys |= _gdtf_ref_keys(zip_name)
+        else:
+            # Aufloesung fehlgeschlagen: _update_fixture_element laesst das
+            # urspruengliche GDTFSpec in diesem Fall unangetastet.
+            for fixture in fixtures_of_type:
+                if fixture.gdtf_spec:
+                    reference_keys |= _gdtf_ref_keys(fixture.gdtf_spec)
+
+    for element in scene.non_fixture_elements:
+        for gdtf_el in element.iter("GDTFSpec"):
+            if gdtf_el.text:
+                reference_keys |= _gdtf_ref_keys(gdtf_el.text)
+
+    return reference_keys
+
+
 def enrich_mvr(
     scene: MvrScene,
     types: list[FixtureType],
@@ -367,17 +434,16 @@ def enrich_mvr(
     for fixture_el in root.iter("Fixture"):
         _strip_nonstandard_elements(fixture_el, stripped_counts)
 
-    # 4c. Referenz-Set aller finalen GDTFSpec-Werte bilden (fuer Orphan-Check),
-    #     ebenfalls ueber den gesamten Baum: eine verschachtelte Fixture in der
-    #     "3D"-Gruppe referenziert ihre GDTF genauso gueltig wie eine exportierte
-    #     Top-Level-Fixture — sonst wird ihre Datei faelschlich als Orphan verworfen.
-    #     Verbliebene URL-kodierte GDTFSpec-Werte werden dabei mit dekodiert.
-    reference_keys: set[str] = set()
+    # 4c. In-Place-Dekodierung verbliebener URL-kodierter GDTFSpec-Werte im
+    #     finalen Baum (fuer die tatsaechliche Export-Ausgabe).
     for gdtf_el in root.iter("GDTFSpec"):
         if gdtf_el.text and "%" in gdtf_el.text:
             gdtf_el.text = _clean_gdtf_name(gdtf_el.text)
-        if gdtf_el.text:
-            reference_keys |= _gdtf_ref_keys(gdtf_el.text)
+
+    # Referenz-Set ueber die gemeinsame Hilfsfunktion (siehe deren Docstring):
+    # dieselbe Logik treibt auch api.Api.prepare_export()s Export-Vorschau,
+    # damit beide Berechnungen nicht auseinanderlaufen koennen.
+    reference_keys = compute_gdtf_references(scene, assignments, gdtf_library_dir, gdtf_library)
 
     ET.indent(root, space="  ")
     tree = ET.ElementTree(root)

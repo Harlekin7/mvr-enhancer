@@ -10,9 +10,13 @@ ersetzt.
 
 import json
 import os
+import zipfile
+from xml.etree import ElementTree as ET
 
+from mvr_enhancer import api as api_module
 from mvr_enhancer.api import Api
 from mvr_enhancer.settings import Settings
+from mvr_enhancer.winsec import encrypt_password
 from tests.builders import build_gdtf, build_mvr
 
 
@@ -23,9 +27,18 @@ class FakeWindow:
         self.dialog_paths = dialog_paths
         self.titles: list[str] = []
         self.evaluated: list[str] = []
+        self.dialog_calls: list[dict] = []
 
     def create_file_dialog(self, dialog_type=None, directory="", allow_multiple=False,
                             save_filename="", file_types=()):
+        self.dialog_calls.append(
+            {
+                "dialog_type": dialog_type,
+                "directory": directory,
+                "save_filename": save_filename,
+                "file_types": file_types,
+            }
+        )
         return self.dialog_paths
 
     def set_title(self, title):
@@ -33,6 +46,12 @@ class FakeWindow:
 
     def evaluate_js(self, js):
         self.evaluated.append(js)
+
+
+def _parsed_events(window: FakeWindow) -> list[dict]:
+    """Parst ``app.onEvent({...})``-Aufrufe aus ``window.evaluated`` zu Dicts."""
+    prefix = "app.onEvent("
+    return [json.loads(js[len(prefix):-1]) for js in window.evaluated]
 
 
 def _setup_library(tmp_path, modes=(("Mode 1", 16), ("Mode 2", 32))):
@@ -414,3 +433,342 @@ def test_get_version(tmp_path):
     api = _make_api(tmp_path)
     result = api.get_version()
     assert result == {"ok": True, "data": "0.1.0"}
+
+
+# ──── Fix round 1: reviewer findings ────
+
+
+def test_run_export_twice_preserves_position_grouping(tmp_path):
+    # Critical finding: enrich_mvr strips <Position> from the fixture
+    # elements it processes; reusing the same in-memory scene for a second
+    # export used to fall back to layer-based grouping. run_export must
+    # re-read the source MVR fresh every time instead.
+    library_dir = _setup_library(tmp_path)
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[
+            {"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111",
+             "address": 1, "position_uuid": "aaaaaaaa-0000-0000-0000-000000000000"},
+            {"name": "Spot A", "uuid": "22222222-2222-2222-2222-222222222222",
+             "address": 100, "position_uuid": "bbbbbbbb-0000-0000-0000-000000000000"},
+        ],
+        aux_positions={
+            "aaaaaaaa-0000-0000-0000-000000000000": "Truss 1",
+            "bbbbbbbb-0000-0000-0000-000000000000": "Truss 2",
+        },
+    )
+
+    api = _make_api(tmp_path, library_dir)
+    api.load_mvr(str(mvr_path))
+
+    def _group_names(export_path):
+        with zipfile.ZipFile(export_path) as zf:
+            root = ET.fromstring(zf.read("GeneralSceneDescription.xml"))
+        return sorted(
+            g.get("name") for g in root.findall("Scene/Layers/Layer/ChildList/GroupObject")
+        )
+
+    first_path = tmp_path / "out1.mvr"
+    result1 = api.run_export(str(first_path))
+    assert result1["ok"] is True
+    first_groups = _group_names(first_path)
+    assert first_groups == ["Truss 1", "Truss 2"]
+    assert result1["data"]["report"]["position_group_count"] == 2
+
+    second_path = tmp_path / "out2.mvr"
+    result2 = api.run_export(str(second_path))
+    assert result2["ok"] is True
+    second_groups = _group_names(second_path)
+
+    assert second_groups == first_groups
+    assert result2["data"]["report"]["position_group_count"] == 2
+
+
+def test_threaded_mode_pushes_state_result_and_toast_events(tmp_path, monkeypatch):
+    # Critical finding: in threaded (production) mode, _emit_after only ever
+    # pushed a "state" event — a worker's actual payload (search hits, an
+    # export report, ...) never reached the UI. Verify the "result" event
+    # carries it, alongside the expected "state"/"toast" events.
+    library_dir = _setup_library(tmp_path)
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[{"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111", "address": 1}],
+    )
+
+    base_dir = tmp_path / "appdata"
+    settings = Settings.load(str(base_dir))
+    settings.gdtf_library_dir = str(library_dir)
+    settings.save()
+
+    api = Api(sync=False, base_dir=str(base_dir))
+    window = FakeWindow()
+    api.set_window(window)
+    assert api._last_thread is not None
+    api._last_thread.join(timeout=5)
+    window.evaluated.clear()
+
+    # Success path: load_mvr must push a "state" event and a "result" event
+    # carrying the actual (get_state-shaped) payload.
+    result = api.load_mvr(str(mvr_path))
+    assert result == {"ok": True, "data": {"started": True}}
+    assert api._last_thread is not None
+    api._last_thread.join(timeout=5)
+
+    events = _parsed_events(window)
+    assert any(e["type"] == "state" and e["data"]["mvr_loaded"] is True for e in events)
+    result_events = [e for e in events if e["type"] == "result" and e["method"] == "load_mvr"]
+    assert len(result_events) == 1
+    assert result_events[0]["data"]["mvr_loaded"] is True
+
+    # Failure path: a bogus path must push exactly a "toast" event.
+    window.evaluated.clear()
+    api.load_mvr(str(tmp_path / "does-not-exist.mvr"))
+    api._last_thread.join(timeout=5)
+    events = _parsed_events(window)
+    assert len(events) == 1
+    assert events[0]["type"] == "toast"
+    assert events[0]["level"] == "error"
+
+    # share_search's "result" event must carry the actual search hits.
+    def fake_request(method, slug, params=None, data=None):
+        return 200, json.dumps(
+            {"result": True, "list": [{"rid": 1, "manufacturer": "GLP", "fixture": "Impression X5"}]}
+        ).encode()
+
+    monkeypatch.setattr(api._share, "_request", fake_request)
+    api._share.logged_in = True
+
+    window.evaluated.clear()
+    api.share_search("GLP")
+    api._last_thread.join(timeout=5)
+    events = _parsed_events(window)
+    result_events = [e for e in events if e["type"] == "result" and e["method"] == "share_search"]
+    assert len(result_events) == 1
+    assert result_events[0]["data"][0]["rid"] == 1
+
+
+def test_cleanup_preview_matches_enricher_orphan_report(tmp_path):
+    # Important finding: the old cleanup_preview diverged from enrich_mvr's
+    # actual orphan logic for an assigned type whose gdtf_name fails to
+    # resolve — enrich_mvr leaves that fixture's ORIGINAL GDTFSpec untouched
+    # (so its embedded file survives), but the old preview counted it as a
+    # dropped/orphaned reference regardless. Both must now agree exactly.
+    library_dir = tmp_path / "library"
+    build_gdtf(
+        library_dir / "Testlight@Beam One@rev1.gdtf",
+        manufacturer="Testlight", name="Beam One",
+    )
+
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[
+            {"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111",
+             "address": 1, "gdtf_spec": "Robe%40Robin%40r1.gdtf"},
+        ],
+        embedded={"Robe%40Robin%40r1.gdtf": b"robe gdtf bytes"},
+    )
+
+    api = _make_api(tmp_path, library_dir)
+    api.load_mvr(str(mvr_path))
+    state = api.get_state()["data"]
+    key = state["types"][0]["key"]
+
+    # "NoSuchGdtf" scores 0.0 against the only library entry ("Beam One") —
+    # well below the auto-match threshold, so resolution fails entirely, but
+    # the type is still explicitly assigned (not open, not removed).
+    api.set_gdtf(key, "NoSuchGdtf")
+
+    preview = api.prepare_export()["data"]["warnings"]["cleanup_preview"]
+    assert preview["orphan_gdtf_names"] == []
+
+    export_path = tmp_path / "out.mvr"
+    export_result = api.run_export(str(export_path))
+    assert export_result["ok"] is True
+    assert export_result["data"]["report"]["cleanup"]["orphan_gdtf_names"] == []
+
+    with zipfile.ZipFile(export_path) as zf:
+        assert "Robe@Robin@r1.gdtf" in zf.namelist()
+
+
+def test_startup_deferred_until_set_window(tmp_path):
+    # Important finding: the constructor used to eagerly scan the GDTF
+    # library (and would have blocked on a real share auto-login). It must
+    # now be fast/offline; the library scan only happens once set_window()
+    # triggers the deferred startup task.
+    library_dir = _setup_library(tmp_path)
+    api = _make_api(tmp_path, library_dir)
+
+    assert api.get_state()["data"]["library"]["count"] == 0
+
+    api.set_window(FakeWindow())
+
+    assert api.get_state()["data"]["library"]["count"] == 1
+
+
+def test_auto_login_on_startup(tmp_path, monkeypatch):
+    base_dir = tmp_path / "appdata"
+    # Simulate credentials persisted by a previous session.
+    settings = Settings.load(str(base_dir))
+    settings.share_user = "alice"
+    settings.share_password_enc = encrypt_password("secret")
+    settings.save()
+
+    api = Api(sync=True, base_dir=str(base_dir))
+    # Constructor must be fast/offline: no login attempted yet.
+    assert api._share.logged_in is False
+
+    def fake_request(method, slug, params=None, data=None):
+        assert data == {"user": "alice", "password": "secret"}
+        return 200, json.dumps({"result": True}).encode()
+
+    monkeypatch.setattr(api._share, "_request", fake_request)
+
+    api.set_window(FakeWindow())  # triggers the deferred startup synchronously
+
+    assert api._share.logged_in is True
+    state = api.get_state()["data"]
+    assert state["share"]["logged_in"] is True
+    assert state["share"]["user"] == "alice"
+
+
+def test_export_default_path_exact_string(tmp_path):
+    library_dir = _setup_library(tmp_path)
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[{"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111", "address": 1}],
+    )
+
+    api = _make_api(tmp_path, library_dir)
+    api.load_mvr(str(mvr_path))
+
+    state = api.get_state()["data"]
+    assert state["export"]["default_path"] == str(mvr_path.parent / "scene_MA3.mvr")
+
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    api._settings.last_export_dir = str(other_dir)
+
+    state = api.get_state()["data"]
+    assert state["export"]["default_path"] == str(other_dir / "scene_MA3.mvr")
+
+
+def test_run_export_empty_path_uses_save_dialog(tmp_path):
+    library_dir = _setup_library(tmp_path)
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[{"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111", "address": 1}],
+    )
+
+    api = _make_api(tmp_path, library_dir)
+    api.load_mvr(str(mvr_path))
+
+    # A dialog returning a tuple (as some pywebview backends do).
+    export_path = tmp_path / "picked" / "scene_MA3.mvr"
+    window = FakeWindow(dialog_paths=(str(export_path),))
+    api.set_window(window)
+
+    result = api.run_export("")
+    assert result["ok"] is True
+    assert os.path.isfile(export_path)
+    assert window.dialog_calls[-1]["dialog_type"] == api_module._SAVE_DIALOG
+    assert window.dialog_calls[-1]["save_filename"] == "scene_MA3.mvr"
+
+    # A dialog returning a bare str must also be accepted (str-vs-tuple
+    # normalization).
+    export_path2 = tmp_path / "picked2" / "scene2_MA3.mvr"
+    window2 = FakeWindow(dialog_paths=str(export_path2))
+    api.set_window(window2)
+
+    result2 = api.run_export("")
+    assert result2["ok"] is True
+    assert os.path.isfile(export_path2)
+
+
+def test_run_export_dialog_cancelled(tmp_path):
+    library_dir = _setup_library(tmp_path)
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[{"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111", "address": 1}],
+    )
+
+    api = _make_api(tmp_path, library_dir)
+    api.load_mvr(str(mvr_path))
+
+    window = FakeWindow(dialog_paths=None)
+    api.set_window(window)
+
+    result = api.run_export("")
+    assert result == {"ok": True, "data": {"cancelled": True}}
+    assert api.get_state()["data"]["export"]["done"] is False
+
+
+def test_share_download_sets_source_share(tmp_path, monkeypatch):
+    library_dir = tmp_path / "library"  # empty: nothing to auto-match yet
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[{"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111", "address": 1}],
+    )
+
+    api = _make_api(tmp_path, str(library_dir))
+    api.load_mvr(str(mvr_path))
+    state = api.get_state()["data"]
+    key = state["types"][0]["key"]
+    assert state["types"][0]["assignment"]["gdtf_name"] is None
+
+    gdtf_source = build_gdtf(tmp_path / "source.gdtf", manufacturer="Testlight", name="Spot A")
+    gdtf_bytes = gdtf_source.read_bytes()
+    api._share.logged_in = True
+
+    def fake_request(method, slug, params=None, data=None):
+        assert slug == "downloadFile.php"
+        return 200, gdtf_bytes
+
+    monkeypatch.setattr(api._share, "_request", fake_request)
+
+    result = api.share_download(42, key)
+    assert result["ok"] is True
+    spot = _types_by_name(result["data"])["Spot A"]
+    assert spot["assignment"]["gdtf_name"] == "Spot A"
+    assert spot["assignment"]["source"] == "share"
+
+
+def test_share_login_remember_false_persists_no_password(tmp_path, monkeypatch):
+    api = _make_api(tmp_path)
+
+    def fake_request(method, slug, params=None, data=None):
+        return 200, json.dumps({"result": True}).encode()
+
+    monkeypatch.setattr(api._share, "_request", fake_request)
+
+    result = api.share_login("bob", "hunter2", False)
+    assert result["ok"] is True
+
+    reloaded = Settings.load(api._settings.base_dir)
+    assert reloaded.share_user == "bob"
+    assert reloaded.share_password_enc == ""
+
+
+def test_set_gdtf_clears_stale_warnings(tmp_path):
+    # Important finding: warnings computed by an earlier prepare_export()
+    # must not survive a subsequent assignment change unmodified.
+    library_dir = _setup_library(tmp_path)
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[
+            {"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111", "address": 1},
+            {"name": "Spot A", "uuid": "22222222-2222-2222-2222-222222222222", "address": 10},
+        ],
+    )
+
+    api = _make_api(tmp_path, library_dir)
+    api.load_mvr(str(mvr_path))
+    key = api.get_state()["data"]["types"][0]["key"]
+
+    prepared = api.prepare_export()["data"]
+    assert prepared["warnings"]["fallbacks"] or prepared["warnings"]["collisions"]
+
+    api.set_mode(key, "Mode 1")
+    state = api.get_state()["data"]
+    assert state["warnings"]["fallbacks"] == []
+    assert state["warnings"]["collisions"] == []
+    assert state["warnings"]["cleanup_preview"] is None

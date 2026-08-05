@@ -9,13 +9,18 @@ Source of Truth; ``get_state()`` baut daraus bei jedem Aufruf frisch das
 komplette, von der UI konsumierte Zustands-Dict.
 
 Lange Operationen (``load_mvr``, ``rescan_library``, ``share_*``,
-``run_export``) laufen in Produktion in einem ``threading.Thread`` und
-melden sich per ``window.evaluate_js(f"app.onEvent({json})")`` mit Events
-``{"type": "state"|"toast"|"progress", ...}`` zurueck. Mit ``Api(sync=True)``
+``run_export``, sowie der Erststart-Abgleich nach ``set_window``) laufen in
+Produktion in einem ``threading.Thread`` und melden sich per
+``window.evaluate_js(f"app.onEvent({json})")`` mit Events zurueck: ein
+``"state"``-Event (komplett frischer Zustand) bei Erfolg, gefolgt von einem
+``"result"``-Event (die eigentliche Nutzlast der Operation, z. B. Such-
+treffer oder der Export-Report — sonst kaeme sie im Thread-Modus nie bei der
+UI an), oder ein ``"toast"``-Event bei einem Fehler. Mit ``Api(sync=True)``
 (Testmodus) laeuft dieselbe Arbeit synchron auf dem aufrufenden Thread, und
 Events landen statt in ``evaluate_js`` in der Liste ``self.events``.
 """
 
+import copy
 import json
 import logging
 import os
@@ -29,12 +34,11 @@ from mvr_enhancer.core.analysis import (
     compute_stats,
     detect_address_collisions,
 )
-from mvr_enhancer.core.enricher import _clean_gdtf_name, enrich_mvr
+from mvr_enhancer.core.enricher import _clean_gdtf_name, compute_gdtf_references, enrich_mvr
 from mvr_enhancer.core.gdtf import (
     MATCH_THRESHOLD,
+    GdtfFixture,
     find_all_gdtf_suggestions,
-    find_gdtf_file,
-    find_matching_gdtf,
     invalidate_gdtf_cache,
     load_gdtf_library,
 )
@@ -53,6 +57,21 @@ from mvr_enhancer.winsec import decrypt_password, encrypt_password
 log = logging.getLogger(__name__)
 
 _BASE_TITLE = "Groh·PA MVR Export"
+
+
+def _dialog_const(name: str, legacy_name: str):
+    """Loest eine ``webview.FileDialog``-Konstante auf, mit Fallback auf die
+    aeltere (deprecated) ``webview.<NAME>_DIALOG``-Ganzzahl-Konstante, falls
+    ``FileDialog`` in der installierten pywebview-Version fehlt."""
+    file_dialog = getattr(webview, "FileDialog", None)
+    if file_dialog is not None and hasattr(file_dialog, name):
+        return getattr(file_dialog, name)
+    return getattr(webview, legacy_name)
+
+
+_OPEN_DIALOG = _dialog_const("OPEN", "OPEN_DIALOG")
+_SAVE_DIALOG = _dialog_const("SAVE", "SAVE_DIALOG")
+_FOLDER_DIALOG = _dialog_const("FOLDER", "FOLDER_DIALOG")
 
 
 def _resolve_initial_mode(existing_mode: str, modes: list[dict]) -> tuple[str, bool]:
@@ -74,6 +93,10 @@ def _resolve_initial_mode(existing_mode: str, modes: list[dict]) -> tuple[str, b
     return "", False
 
 
+_EMPTY_WARNINGS = {"fallbacks": [], "collisions": [], "cleanup_preview": None}
+_EMPTY_EXPORT_STATE = {"done": False, "path": "", "size_mb": 0.0, "time": ""}
+
+
 class Api:
     """pywebview ``js_api``-Objekt: Bruecke zwischen UI und Core-Modulen."""
 
@@ -82,6 +105,7 @@ class Api:
         self._window = None
         self.events: list[dict] = []
         self._lock = threading.RLock()
+        self._last_thread: threading.Thread | None = None
 
         self._settings = Settings.load(base_dir)
         self._share = GdtfShareClient(
@@ -98,21 +122,35 @@ class Api:
         self._active_step = 0
 
         self._grouping = self._settings.group_by_position
+        # Konstruktion bleibt schnell und offline: kein Bibliotheks-Scan, kein
+        # Netzwerk-Login hier — beides wird von set_window() im Hintergrund
+        # nachgeholt, sobald ein Fenster (und damit ein Event-Ziel) existiert.
         self._library_dir = self._settings.gdtf_library_dir
-        self._gdtf_library = (
-            load_gdtf_library(self._library_dir) if self._library_dir else {}
-        )
+        self._gdtf_library: dict[str, GdtfFixture] = {}
 
-        self._warnings = {"fallbacks": [], "collisions": [], "cleanup_preview": None}
-        self._export_state = {"done": False, "path": "", "size_mb": 0.0, "time": ""}
-
-        self._auto_login()
+        self._warnings = dict(_EMPTY_WARNINGS)
+        self._export_state = dict(_EMPTY_EXPORT_STATE)
 
     # ──── Fenster-/Event-Wiring ────
 
     def set_window(self, window) -> None:
-        """Verbindet die Api mit dem echten pywebview-Fenster (aus ``main.run()``)."""
+        """Verbindet die Api mit dem echten pywebview-Fenster (aus ``main.run()``).
+
+        Stoesst zugleich die (potenziell langsame) Erststart-Arbeit an —
+        Bibliotheks-Scan und Share-Auto-Login —, die absichtlich nicht im
+        Konstruktor laeuft, damit dieser schnell und offline bleibt.
+        """
         self._window = window
+        self._run_long("startup", self._do_startup)
+
+    def _do_startup(self) -> dict:
+        library_dir = self._settings.gdtf_library_dir
+        gdtf_library = load_gdtf_library(library_dir) if library_dir else {}
+        with self._lock:
+            self._library_dir = library_dir
+            self._gdtf_library = gdtf_library
+        self._auto_login()
+        return {"ok": True, "data": self.get_state()["data"]}
 
     def _emit(self, event: dict) -> None:
         if self._sync or self._window is None:
@@ -123,9 +161,14 @@ class Api:
         except Exception:
             log.exception("Event konnte nicht an die UI uebertragen werden")
 
-    def _emit_after(self, result: dict) -> None:
+    def _emit_after(self, method: str, result: dict) -> None:
         if result.get("ok"):
             self._emit({"type": "state", "data": self.get_state()["data"]})
+            # Ohne dieses Event kaeme die eigentliche Nutzlast (Suchtreffer,
+            # Export-Report, ...) im Thread-Modus nie bei der UI an — der
+            # Rueckgabewert der aufrufenden Methode geht dort ins Leere,
+            # da niemand auf den Thread wartet.
+            self._emit({"type": "result", "method": method, "data": result.get("data")})
         else:
             self._emit(
                 {
@@ -142,18 +185,26 @@ class Api:
             log.exception("Hintergrund-Operation fehlgeschlagen")
             return {"ok": False, "error": f"Unerwarteter Fehler: {e}"}
 
-    def _run_long(self, worker) -> dict:
-        """Fuehrt ``worker`` synchron (Testmodus) oder in einem Thread aus."""
+    def _run_long(self, method: str, worker) -> dict:
+        """Fuehrt ``worker`` synchron (Testmodus) oder in einem Thread aus.
+
+        ``self._last_thread`` wird in Produktion (nicht-sync) auf den
+        gestarteten Thread gesetzt — ausschliesslich als Test-Haken, damit
+        Tests im Thread-Modus deterministisch per ``.join()`` auf das Ende
+        der Hintergrund-Operation warten koennen, statt zu pollen/sleepen.
+        """
         if self._sync:
             result = self._safe_call(worker)
-            self._emit_after(result)
+            self._emit_after(method, result)
             return result
 
         def _target():
             result = self._safe_call(worker)
-            self._emit_after(result)
+            self._emit_after(method, result)
 
-        threading.Thread(target=_target, daemon=True).start()
+        thread = threading.Thread(target=_target, daemon=True)
+        self._last_thread = thread
+        thread.start()
         return {"ok": True, "data": {"started": True}}
 
     # ──── Auto-Login ────
@@ -211,7 +262,10 @@ class Api:
 
                 data = {
                     "mvr_loaded": self._scene is not None,
-                    "file_meta": self._file_meta,
+                    # Kopien statt Live-Referenzen: der Aufrufer darf das
+                    # zurueckgegebene Dict nicht versehentlich mutieren und
+                    # damit Api._state korrumpieren.
+                    "file_meta": dict(self._file_meta),
                     "stats": serialize(self._stats) if self._stats is not None else None,
                     "types": types_out,
                     "grouping": self._grouping,
@@ -224,7 +278,7 @@ class Api:
                         "count": len(self._gdtf_library),
                     },
                     "recent": recent,
-                    "warnings": self._warnings,
+                    "warnings": copy.deepcopy(self._warnings),
                     "export": {**self._export_state, "default_path": self._default_export_path()},
                     "assigned_count": assigned_count,
                     "open_count": open_count,
@@ -262,10 +316,15 @@ class Api:
             return []
         return [{"name": m.name, "channel_count": m.channel_count} for m in fixture.modes]
 
-    def _build_candidates_for_type(self, fixture_type: FixtureType) -> list[Candidate]:
-        suggestions = find_all_gdtf_suggestions(
-            [fixture_type.name], self._gdtf_library, {}
-        )
+    def _build_candidates_for_type(
+        self, fixture_type: FixtureType, gdtf_library: dict[str, GdtfFixture]
+    ) -> list[Candidate]:
+        """Baut die Kandidatenliste eines Typs gegen eine explizit uebergebene
+        Bibliothek (statt implizit ``self._gdtf_library``), damit Aufrufer wie
+        ``_do_rescan_library`` die (potenziell langsame) Score-Berechnung
+        gegen eine bereits geladene, aber noch nicht committete Bibliothek
+        ausserhalb des Locks ausfuehren koennen."""
+        suggestions = find_all_gdtf_suggestions([fixture_type.name], gdtf_library, {})
         matches = suggestions.get(fixture_type.name, [])
         candidates = [
             Candidate(
@@ -281,6 +340,18 @@ class Api:
         candidates.sort(key=lambda c: c.score, reverse=True)
         return candidates
 
+    def _clear_warnings(self) -> None:
+        """Verwirft veraltete Export-Warnungen nach einer Zuordnungs-Aenderung.
+
+        ``warnings`` wird ausschliesslich von ``prepare_export()`` befuellt;
+        nach ``set_gdtf``/``set_mode``/``set_removed`` waeren Fallback-/
+        Kollisions-/Cleanup-Angaben aus einem fruehreren ``prepare_export()``-
+        Aufruf sonst fuer die neue Zuordnung nicht mehr gueltig. Die UI ist
+        dafuer verantwortlich, ``prepare_export()`` bei Bedarf erneut
+        aufzurufen.
+        """
+        self._warnings = dict(_EMPTY_WARNINGS)
+
     # ──── MVR laden/entfernen ────
 
     def choose_mvr(self) -> dict:
@@ -288,7 +359,7 @@ class Api:
             if self._window is None:
                 return {"ok": False, "error": "Kein Fenster verfuegbar. Bitte starte die App neu."}
             paths = self._window.create_file_dialog(
-                webview.OPEN_DIALOG, file_types=("MVR-Dateien (*.mvr)",)
+                _OPEN_DIALOG, file_types=("MVR-Dateien (*.mvr)",)
             )
             if not paths:
                 return {"ok": True, "data": {"cancelled": True}}
@@ -298,7 +369,7 @@ class Api:
             return {"ok": False, "error": f"Datei-Dialog konnte nicht geoeffnet werden: {e}"}
 
     def load_mvr(self, path: str) -> dict:
-        return self._run_long(lambda: self._do_load_mvr(path))
+        return self._run_long("load_mvr", lambda: self._do_load_mvr(path))
 
     def _do_load_mvr(self, path: str) -> dict:
         if not path or not os.path.isfile(path):
@@ -352,6 +423,16 @@ class Api:
                 )
             assignments[fixture_type.key] = assignment
 
+        file_stat = os.stat(path)
+        file_meta = {
+            "name": os.path.basename(path),
+            "path": path,
+            "size_mb": round(file_stat.st_size / (1024 * 1024), 2),
+            "modified": datetime.fromtimestamp(file_stat.st_mtime).isoformat(
+                timespec="seconds"
+            ),
+        }
+
         with self._lock:
             self._scene = scene
             self._types = types
@@ -362,21 +443,12 @@ class Api:
             self._library_dir = library_dir
             self._gdtf_library = gdtf_library
             self._grouping = self._settings.group_by_position
-            self._warnings = {"fallbacks": [], "collisions": [], "cleanup_preview": None}
-            self._export_state = {"done": False, "path": "", "size_mb": 0.0, "time": ""}
+            self._warnings = dict(_EMPTY_WARNINGS)
+            self._export_state = dict(_EMPTY_EXPORT_STATE)
+            self._file_meta = file_meta
 
-            file_stat = os.stat(path)
-            self._file_meta = {
-                "name": os.path.basename(path),
-                "path": path,
-                "size_mb": round(file_stat.st_size / (1024 * 1024), 2),
-                "modified": datetime.fromtimestamp(file_stat.st_mtime).isoformat(
-                    timespec="seconds"
-                ),
-            }
-
-        self._settings.add_recent(path)
-        self._settings.save()
+            self._settings.add_recent(path)
+            self._settings.save()
 
         if self._window is not None:
             try:
@@ -396,8 +468,8 @@ class Api:
                 self._assignments = {}
                 self._mvr_path = None
                 self._file_meta = {}
-                self._warnings = {"fallbacks": [], "collisions": [], "cleanup_preview": None}
-                self._export_state = {"done": False, "path": "", "size_mb": 0.0, "time": ""}
+                self._warnings = dict(_EMPTY_WARNINGS)
+                self._export_state = dict(_EMPTY_EXPORT_STATE)
 
             if self._window is not None:
                 try:
@@ -428,6 +500,7 @@ class Api:
             with self._lock:
                 if not gdtf_name:
                     self._assignments[type_key] = Assignment()
+                    self._clear_warnings()
                     return {"ok": True, "data": self.get_state()["data"]}
 
                 candidate = self._find_candidate(type_key, gdtf_name)
@@ -448,6 +521,7 @@ class Api:
                     mode_is_fallback=not confirmed,
                     source=source,
                 )
+                self._clear_warnings()
             return {"ok": True, "data": self.get_state()["data"]}
         except Exception as e:
             log.exception("set_gdtf fehlgeschlagen")
@@ -461,6 +535,7 @@ class Api:
                     return {"ok": False, "error": "Diesen Fixture-Typ kenne ich nicht."}
                 assignment.mode_name = mode_name
                 assignment.mode_is_fallback = False
+                self._clear_warnings()
             return {"ok": True, "data": self.get_state()["data"]}
         except Exception as e:
             log.exception("set_mode fehlgeschlagen")
@@ -473,6 +548,7 @@ class Api:
                 if assignment is None:
                     return {"ok": False, "error": "Diesen Fixture-Typ kenne ich nicht."}
                 assignment.removed = bool(flag)
+                self._clear_warnings()
             return {"ok": True, "data": self.get_state()["data"]}
         except Exception as e:
             log.exception("set_removed fehlgeschlagen")
@@ -482,8 +558,8 @@ class Api:
         try:
             with self._lock:
                 self._grouping = bool(flag)
-            self._settings.group_by_position = self._grouping
-            self._settings.save()
+                self._settings.group_by_position = self._grouping
+                self._settings.save()
             return {"ok": True, "data": self.get_state()["data"]}
         except Exception as e:
             log.exception("set_grouping fehlgeschlagen")
@@ -495,18 +571,19 @@ class Api:
         try:
             if self._window is None:
                 return {"ok": False, "error": "Kein Fenster verfuegbar. Bitte starte die App neu."}
-            paths = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+            paths = self._window.create_file_dialog(_FOLDER_DIALOG)
             if not paths:
                 return {"ok": True, "data": {"cancelled": True}}
-            self._settings.gdtf_library_dir = paths[0]
-            self._settings.save()
+            with self._lock:
+                self._settings.gdtf_library_dir = paths[0]
+                self._settings.save()
             return self.rescan_library()
         except Exception as e:
             log.exception("Ordner-Dialog fehlgeschlagen")
             return {"ok": False, "error": f"Ordner-Dialog konnte nicht geoeffnet werden: {e}"}
 
     def rescan_library(self) -> dict:
-        return self._run_long(self._do_rescan_library)
+        return self._run_long("rescan_library", self._do_rescan_library)
 
     def _do_rescan_library(self) -> dict:
         library_dir = self._settings.gdtf_library_dir
@@ -514,23 +591,32 @@ class Api:
         gdtf_library = load_gdtf_library(library_dir, force_reload=True) if library_dir else {}
 
         with self._lock:
+            open_types = [
+                fixture_type
+                for fixture_type in self._types
+                if (assignment := self._assignments.get(fixture_type.key)) is None
+                or (not assignment.removed and not assignment.gdtf_name)
+            ]
+
+        # Score-Neuberechnung bewusst ausserhalb des Locks: bei vielen offenen
+        # Typen und/oder einer grossen Bibliothek kann das spuerbar dauern —
+        # waehrenddessen soll get_state()/set_gdtf() etc. nicht blockieren.
+        new_candidates = {
+            fixture_type.key: self._build_candidates_for_type(fixture_type, gdtf_library)
+            for fixture_type in open_types
+        }
+
+        with self._lock:
             self._library_dir = library_dir
             self._gdtf_library = gdtf_library
-
-            for fixture_type in self._types:
-                assignment = self._assignments.get(fixture_type.key)
-                is_open = assignment is None or (not assignment.removed and not assignment.gdtf_name)
-                if is_open:
-                    self._candidates[fixture_type.key] = self._build_candidates_for_type(
-                        fixture_type
-                    )
+            self._candidates.update(new_candidates)
 
         return {"ok": True, "data": self.get_state()["data"]}
 
     # ──── GDTF Share ────
 
     def share_login(self, user: str, password: str, remember: bool) -> dict:
-        return self._run_long(lambda: self._do_share_login(user, password, remember))
+        return self._run_long("share_login", lambda: self._do_share_login(user, password, remember))
 
     def _do_share_login(self, user: str, password: str, remember: bool) -> dict:
         ok = self._share.login(user, password)
@@ -540,30 +626,34 @@ class Api:
                 "error": self._share.last_error or "Login fehlgeschlagen. Pruef deine Zugangsdaten.",
             }
 
-        self._settings.share_user = user
         if remember:
             try:
-                self._settings.share_password_enc = encrypt_password(password)
+                password_enc = encrypt_password(password)
             except ValueError:
-                self._settings.share_password_enc = ""
+                password_enc = ""
         else:
-            self._settings.share_password_enc = ""
-        self._settings.save()
+            password_enc = ""
+
+        with self._lock:
+            self._settings.share_user = user
+            self._settings.share_password_enc = password_enc
+            self._settings.save()
 
         return {"ok": True, "data": self.get_state()["data"]}
 
     def share_logout(self) -> dict:
-        return self._run_long(self._do_share_logout)
+        return self._run_long("share_logout", self._do_share_logout)
 
     def _do_share_logout(self) -> dict:
         self._share.logout()
-        self._settings.share_user = ""
-        self._settings.share_password_enc = ""
-        self._settings.save()
+        with self._lock:
+            self._settings.share_user = ""
+            self._settings.share_password_enc = ""
+            self._settings.save()
         return {"ok": True, "data": self.get_state()["data"]}
 
     def share_search(self, query: str) -> dict:
-        return self._run_long(lambda: self._do_share_search(query))
+        return self._run_long("share_search", lambda: self._do_share_search(query))
 
     def _do_share_search(self, query: str) -> dict:
         results = self._share.search(query)
@@ -572,7 +662,7 @@ class Api:
         return {"ok": True, "data": results}
 
     def share_download(self, rid: int, type_key: str) -> dict:
-        return self._run_long(lambda: self._do_share_download(rid, type_key))
+        return self._run_long("share_download", lambda: self._do_share_download(rid, type_key))
 
     def _do_share_download(self, rid: int, type_key: str) -> dict:
         fixture_type = self._type_by_key(type_key)
@@ -589,14 +679,15 @@ class Api:
 
         invalidate_gdtf_cache()
         gdtf_library = load_gdtf_library(library_dir, force_reload=True)
+        candidates = self._build_candidates_for_type(fixture_type, gdtf_library)
+
+        modes = [{"name": m.name, "channel_count": m.channel_count} for m in fixture.modes]
+        mode_name, confirmed = _resolve_initial_mode(fixture_type.existing_mode, modes)
 
         with self._lock:
             self._library_dir = library_dir
             self._gdtf_library = gdtf_library
-            self._candidates[type_key] = self._build_candidates_for_type(fixture_type)
-
-            modes = [{"name": m.name, "channel_count": m.channel_count} for m in fixture.modes]
-            mode_name, confirmed = _resolve_initial_mode(fixture_type.existing_mode, modes)
+            self._candidates[type_key] = candidates
             self._assignments[type_key] = Assignment(
                 gdtf_name=fixture.name,
                 mode_name=mode_name,
@@ -604,6 +695,7 @@ class Api:
                 mode_is_fallback=not confirmed,
                 source="share",
             )
+            self._clear_warnings()
 
         return {"ok": True, "data": self.get_state()["data"]}
 
@@ -611,10 +703,10 @@ class Api:
 
     def prepare_export(self) -> dict:
         try:
-            if self._scene is None:
-                return {"ok": False, "error": "Lade zuerst eine MVR-Datei."}
-
             with self._lock:
+                if self._scene is None:
+                    return {"ok": False, "error": "Lade zuerst eine MVR-Datei."}
+
                 fallbacks = []
                 footprints: dict[str, int] = {}
                 for fixture_type in self._types:
@@ -665,11 +757,13 @@ class Api:
 
         Zaehlt Fixture-Instanzen offener/entfernter Typen und ermittelt
         eingebettete ``.gdtf``-Dateien, die von keiner verbleibenden
-        Zuordnung mehr referenziert werden.
+        Zuordnung mehr referenziert werden. Die Referenz-Berechnung selbst
+        laeuft ueber ``enricher.compute_gdtf_references`` — dieselbe Logik,
+        die auch ``enrich_mvr`` fuer die tatsaechliche Orphan-Bereinigung
+        nutzt, damit Vorschau und Export nicht auseinanderlaufen koennen.
         """
         removed_fixture_count = 0
         open_type_names = []
-        kept_gdtf_names: set[str] = set()
 
         for fixture_type in self._types:
             assignment = self._assignments.get(fixture_type.key)
@@ -681,25 +775,16 @@ class Api:
                     and not assignment.gdtf_name
                 ):
                     open_type_names.append(fixture_type.name)
-                continue
-
-            gdtf_name = assignment.gdtf_name
-            matched = self._gdtf_library.get(gdtf_name)
-            if matched is None:
-                matched = find_matching_gdtf(gdtf_name, self._gdtf_library, {})
-            if matched is not None:
-                abs_path = find_gdtf_file(
-                    gdtf_name, self._library_dir, self._gdtf_library, {}, matched=matched
-                )
-                if abs_path:
-                    kept_gdtf_names.add(_clean_gdtf_name(os.path.basename(abs_path)))
 
         orphan_preview = []
         if self._scene is not None:
+            kept_reference_keys = compute_gdtf_references(
+                self._scene, self._assignments, self._library_dir, self._gdtf_library
+            )
             for name in self._scene.embedded_files:
                 if name.lower().endswith(".gdtf"):
                     clean_name = _clean_gdtf_name(name)
-                    if clean_name not in kept_gdtf_names:
+                    if clean_name not in kept_reference_keys:
                         orphan_preview.append(clean_name)
 
         return {
@@ -709,42 +794,75 @@ class Api:
         }
 
     def run_export(self, path: str = "") -> dict:
-        return self._run_long(lambda: self._do_run_export(path))
+        return self._run_long("run_export", lambda: self._do_run_export(path))
 
     def _do_run_export(self, path: str) -> dict:
-        if self._scene is None:
-            return {"ok": False, "error": "Lade zuerst eine MVR-Datei, bevor du exportierst."}
+        with self._lock:
+            if self._scene is None or not self._mvr_path:
+                return {"ok": False, "error": "Lade zuerst eine MVR-Datei, bevor du exportierst."}
+            # Snapshot: der eigentliche Enrich-Lauf unten haelt den Lock NICHT
+            # (er kann bei grossen MVRs spuerbar dauern) — ohne diesen
+            # Schnappschuss koennte eine parallele set_gdtf()/set_removed()-
+            # Aenderung waehrend des Exports mit inkonsistenten Assignments
+            # exportieren. ``assignments`` wird tief kopiert, da ``Assignment``
+            # veraenderlich ist (set_mode/set_removed mutieren sie in-place).
+            mvr_path = self._mvr_path
+            types_snapshot = list(self._types)
+            assignments_snapshot = copy.deepcopy(self._assignments)
+            library_dir_snapshot = self._library_dir
+            gdtf_library_snapshot = self._gdtf_library
+            grouping_snapshot = self._grouping
+            default_path_snapshot = self._default_export_path()
 
         if not path:
             if self._window is None:
-                return {
-                    "ok": False,
-                    "error": "Kein Fenster fuer den Speicherdialog verfuegbar.",
-                }
-            default_path = self._default_export_path()
-            directory = os.path.dirname(default_path) or ""
-            filename = os.path.basename(default_path) or "export_MA3.mvr"
+                return {"ok": False, "error": "Kein Fenster fuer den Speicherdialog verfuegbar."}
+            directory = os.path.dirname(default_path_snapshot) or ""
+            filename = os.path.basename(default_path_snapshot) or "export_MA3.mvr"
             result = self._window.create_file_dialog(
-                webview.SAVE_DIALOG,
+                _SAVE_DIALOG,
                 directory=directory,
                 save_filename=filename,
                 file_types=("MVR-Dateien (*.mvr)",),
             )
             if not result:
                 return {"ok": True, "data": {"cancelled": True}}
-            path = result if isinstance(result, str) else result[0]
+            # pywebview gibt bei SAVE_DIALOG i.d.R. einen einzelnen str
+            # zurueck, manche Versionen/Backends eine Sequenz — beides
+            # normalisieren.
+            path = result[0] if isinstance(result, (list, tuple)) else result
+
+        if not os.path.isfile(mvr_path):
+            return {
+                "ok": False,
+                "error": (
+                    "Die urspruengliche MVR-Datei wurde nicht gefunden — "
+                    "wurde sie verschoben oder geloescht?"
+                ),
+            }
+
+        # Export liest die Szene frisch von der Festplatte statt die im
+        # Speicher gehaltene ``self._scene`` wiederzuverwenden: ``enrich_mvr``
+        # mutiert Fixture-Elemente in-place (u. a. wird ``<Position>``
+        # entfernt). Bei mehrfachem Export aus derselben In-Memory-Szene
+        # wuerde die zweite Positions-Gruppierung sonst auf den Layer-
+        # Fallback zurueckfallen, weil die Positions-Referenz bereits vom
+        # ersten Export gestrippt waere.
+        fresh_scene = read_mvr(mvr_path)
+        if fresh_scene.xml_root is None:
+            return {"ok": False, "error": "Diese Datei ist keine gueltige MVR-Datei."}
 
         try:
             # Offene (nicht zugeordnete) Typen zaehlen in enrich_mvr als
             # "removed" (Assignment.gdtf_name ist None) — das ist gewollt:
             # nicht zugeordnete Typen werden beim Export entfernt.
             enrich_result = enrich_mvr(
-                self._scene,
-                self._types,
-                self._assignments,
-                self._library_dir,
-                self._gdtf_library,
-                group_by_position=self._grouping,
+                fresh_scene,
+                types_snapshot,
+                assignments_snapshot,
+                library_dir_snapshot,
+                gdtf_library_snapshot,
+                group_by_position=grouping_snapshot,
             )
         except Exception as e:
             log.exception("Export fehlgeschlagen")
@@ -769,9 +887,8 @@ class Api:
                 "size_mb": size_mb,
                 "time": time_str,
             }
-
-        self._settings.last_export_dir = os.path.dirname(path) or self._settings.last_export_dir
-        self._settings.save()
+            self._settings.last_export_dir = os.path.dirname(path) or self._settings.last_export_dir
+            self._settings.save()
 
         return {
             "ok": True,
@@ -786,7 +903,7 @@ class Api:
     def reset_export(self) -> dict:
         try:
             with self._lock:
-                self._export_state = {"done": False, "path": "", "size_mb": 0.0, "time": ""}
+                self._export_state = dict(_EMPTY_EXPORT_STATE)
             return {"ok": True, "data": self.get_state()["data"]}
         except Exception as e:
             log.exception("reset_export fehlgeschlagen")
