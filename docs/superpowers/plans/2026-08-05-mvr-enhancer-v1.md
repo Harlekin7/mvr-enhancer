@@ -23,7 +23,7 @@
 - Keine Netz-Zugriffe der UI (keine CDNs): Fonts/Icons/Bild lokal gebündelt. Einzige Netz-Nutzung: GDTF-Share-Client (`https://gdtf-share.com/apis/public`).
 - Sicherheits-Limits (aus `<SRC>/app/vectorwatch/constants.py`): MAX_MVR_XML_SIZE=500 MB, MAX_MVR_EMBEDDED_FILE_COUNT=1000, MAX_MVR_EMBEDDED_FILE_SIZE=100 MB, MAX_MVR_TOTAL_EXTRACTED=500 MB, MAX_GDTF_FILE_SIZE=200 MB, MAX_GDTF_DOWNLOAD_SIZE=200 MB.
 - Reproduzierbare UUIDs: `uuid.uuid5(uuid.NAMESPACE_DNS, seed)`; Seeds `"layer_MVR Enhancer Export"`, `f"group_{position}"`, `"group_3D"`.
-- Jede Task: Tests zuerst (TDD), `ruff check .` sauber, eigener Commit auf `main`.
+- Jede Task: Tests zuerst (TDD), `ruff check .` sauber, eigene(r) Commit(s) auf dem Arbeits-Branch `feat/v1`.
 - Versions-String: `v0.1.0 · DIN SPEC 15801 · MVR 1.6`.
 
 ---
