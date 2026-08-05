@@ -13,6 +13,16 @@ Drei Änderungen aus dem ersten echten Produktiveinsatz:
 3. **F3 — Export-Modus-Switch:** Umschalter „Single Layer" / „Per Layer" neben
    „Nach Position gruppieren"; Auswahl persistiert; Default Single Layer.
 
+4. **F4 — App-Icon aus dem Handoff:** `design_handoff_app_icon/` liefert das
+   finale Icon (Motiv „3a": MVR-Datei vor Groh-Blau-Lichtdiagonalen, azure
+   Haken-Badge) als fertige PNGs (16/24 aus der Small-Variante, 32–256 aus dem
+   Master). `tools/make_icon.py` packt künftig **diese** PNGs in
+   `build/app.ico` (der bestehende PNG-in-ICO-Packer bleibt), statt den
+   „G"-Platzhalter zu rendern. Das Icon-Handoff wird mit committet
+   (Reproduzierbarkeit); PyInstaller-Einbindung bleibt unverändert
+   (`icon=build/app.ico`). Kein Fenster-Icon zur Laufzeit — auf Windows kommt
+   Titelleiste/Taskleiste aus dem .exe-Icon.
+
 Am Ende: Release **v0.2.0** (Versions-Bump in `pyproject.toml`, README-Update,
 Tag → Release-Workflow baut die .exe).
 
@@ -138,11 +148,16 @@ stammt. Neu:
 ```python
 @dataclass
 class MvrLayerInfo:
-    uuid: str            # Original-uuid; fehlt es: uuid5(_NS, f"layer_orig_{index}")
-    name: str            # Original-name; fehlt es: f"Layer {index + 1}"
+    uuid: str            # Original-uuid roh aus dem Attribut ("" wenn fehlend)
+    name: str            # Original-name roh aus dem Attribut ("" wenn fehlend)
     matrix_text: str | None   # Text des direkten <Matrix>-Kinds, sonst None
     non_fixture_elements: list[ET.Element]
 ```
+
+Fallbacks für fehlende Werte wendet erst der **Enricher** beim Bauen an (das
+uuid5-Namespace `_NS` lebt dort): fehlende uuid →
+`uuid5(_NS, f"layer_orig_{index}")`, fehlender Name → `f"Layer {index + 1}"`,
+fehlende Matrix → Identitätsmatrix.
 
 - `MvrScene` erhält `layers: list[MvrLayerInfo]` (default leer). Die
   bestehende flache Liste `non_fixture_elements` bleibt unverändert erhalten
