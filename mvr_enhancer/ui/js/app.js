@@ -30,6 +30,7 @@
     library: { dir: "", count: 0 },
     recent: [],
     warnings: { fallbacks: [], collisions: [], cleanup_preview: null },
+    layer_mode: "single",
     export: { done: false, path: "", size_mb: 0, time: "", default_path: "" },
     assigned_count: 0,
     open_count: 0,
@@ -681,6 +682,10 @@
 
     $("chk-gruppieren").checked = !!s.grouping;
 
+    var layerMode = s.layer_mode || "single";
+    $("seg-single").classList.toggle("active", layerMode === "single");
+    $("seg-per-layer").classList.toggle("active", layerMode === "per_layer");
+
     renderMatchTable(s);
   }
 
@@ -1043,6 +1048,10 @@
     });
     $("chk-gruppieren").addEventListener("change", function (e) {
       callApi("set_grouping", e.target.checked);
+    });
+    $("seg-layer-mode").addEventListener("click", function (e) {
+      var btn = e.target.closest(".seg-btn");
+      if (btn && btn.dataset.mode) callApi("set_layer_mode", btn.dataset.mode);
     });
     $("filter-problems").addEventListener("change", function (e) {
       localState.nurProbleme = e.target.checked;

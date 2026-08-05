@@ -405,6 +405,31 @@ button { font: inherit; }
 .status-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--status-success); flex: none; }
 .sources-bar-right { margin-left: auto; }
 
+.seg { display: flex; align-items: center; gap: 10px; }
+.seg-label { font-size: 13px; color: var(--text-inverse-muted); }
+.seg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-inverse-muted);
+  background: transparent;
+  border: 1px solid var(--border-dark);
+  cursor: pointer;
+}
+.seg-btn-left { border-radius: 8px 0 0 8px; border-right: none; }
+.seg-btn-right { border-radius: 0 8px 8px 0; }
+.seg-btn:hover { color: var(--white); }
+.seg-btn.active {
+  background: var(--blue-600);
+  border-color: var(--blue-600);
+  color: var(--white);
+}
+.seg-btn:focus-visible { outline: 2px solid var(--blue-300); outline-offset: -1px; }
+
 .table-filter-row { display: flex; align-items: center; margin-bottom: 10px; flex: none; }
 
 .table-card { overflow: auto; flex: 1 1 auto; min-height: 120px; }
