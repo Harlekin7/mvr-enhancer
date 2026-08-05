@@ -14,7 +14,6 @@ import os
 import re
 import shutil
 import threading
-import zipfile
 from collections import OrderedDict
 from dataclasses import dataclass, field
 
@@ -165,8 +164,26 @@ def _extract_revision(file_path: str) -> str:
     return ""
 
 
+# pygdtf gibt bei unparsebarem XML KEINE Exception zurueck, sondern eine
+# Platzhalter-FixtureType mit diesem Namen (Hersteller "PyGDTF"). Die darf
+# nicht in die Bibliothek wandern: sie wuerde als regulaerer Eintrag am
+# Score-Matching teilnehmen und Muell-Treffer produzieren.
+_BROKEN_XML_SENTINEL = "Original File Had Broken XML"
+
+
 def parse_gdtf(file_path: str) -> GdtfFixture | None:
-    """Parst eine .gdtf-Datei mit pygdtf und extrahiert Hersteller, Name und DMX-Modi."""
+    """Parst eine .gdtf-Datei mit pygdtf und extrahiert Hersteller, Name und DMX-Modi.
+
+    Gibt bei jeder Art von Defekt ``None`` zurueck statt zu werfen — eine
+    einzige kaputte Datei im Bibliotheksordner darf das Matching fuer alle
+    anderen nicht kippen. Das Fangen ist absichtlich breit (``except
+    Exception``): pygdtf wirft je nach Schadensbild ``BadZipFile``, ``OSError``,
+    ``KeyError`` (fehlende ``description.xml``), ``IndexError`` (leere
+    ``description.xml``), ``TypeError``/``ValueError`` (unerwartete Attribut-
+    Typen) — und bei aktivem ``defusedxml.defuse_stdlib()`` zusaetzlich
+    ``EntitiesForbidden`` & Co. Zusaetzlich wird das Ergebnis validiert, weil
+    pygdtf kaputtes XML still in eine Platzhalter-Fixture uebersetzt.
+    """
     try:
         file_size = os.path.getsize(file_path)
         if file_size > _MAX_GDTF_FILE_SIZE:
@@ -178,25 +195,36 @@ def parse_gdtf(file_path: str) -> GdtfFixture | None:
         log.error("GDTF-Dateigroesse konnte nicht ermittelt werden: %s — %s",
                   file_path, e)
         return None
+
+    ft = None
     try:
         ft = pygdtf.FixtureType(file_path)
-    except (zipfile.BadZipFile, OSError) as e:
-        log.error("GDTF-Datei konnte nicht geparst werden: %s — %s", file_path, e)
-        return None
-    try:
+
+        name = str(ft.name) if ft.name else ""
+        if not name or name == _BROKEN_XML_SENTINEL:
+            log.warning(
+                "GDTF-Datei enthaelt keine verwertbare Fixture-Definition "
+                "(Name %r): %s", name, file_path,
+            )
+            return None
+
         modes = []
         for dmx_mode in ft.dmx_modes:
             modes.append(GdtfMode(
-                name=dmx_mode.name,
-                channel_count=dmx_mode.dmx_channels_count,
+                name=str(dmx_mode.name or ""),
+                channel_count=int(dmx_mode.dmx_channels_count or 0),
             ))
 
         return GdtfFixture(
-            manufacturer=ft.manufacturer,
-            name=ft.name,
+            manufacturer=str(ft.manufacturer or ""),
+            name=name,
             revision=_extract_revision(file_path),
             modes=modes,
         )
+    except Exception as e:  # noqa: BLE001 — bewusst breit, siehe Docstring
+        log.warning("GDTF-Datei konnte nicht geparst werden: %s — %s: %s",
+                    file_path, type(e).__name__, e)
+        return None
     finally:
         try:
             pkg = getattr(ft, '_package', None)

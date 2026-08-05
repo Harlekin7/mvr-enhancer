@@ -1,8 +1,106 @@
 """Tests fuer die lokale GDTF-Bibliothek (JSON-Cache + Ordner-Scan, Vorschlaege)."""
 
+import zipfile
+
 from mvr_enhancer.core import gdtf as gdtf_module
-from mvr_enhancer.core.gdtf import find_all_gdtf_suggestions, load_gdtf_library
+from mvr_enhancer.core.gdtf import find_all_gdtf_suggestions, load_gdtf_library, parse_gdtf
 from tests.builders import build_gdtf
+
+
+def _write_gdtf_zip(path, entries: dict[str, bytes]):
+    """Schreibt ein rohes ZIP mit .gdtf-Endung (fuer Fehlerfall-Tests)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    return path
+
+
+# ──── parse_gdtf: Robustheit gegen defekte Dateien (Review I2) ────
+
+
+def test_parse_gdtf_zip_without_description(tmp_path):
+    """pygdtf wirft hier KeyError — parse_gdtf muss None liefern, nicht werfen."""
+    path = _write_gdtf_zip(tmp_path / "no_description.gdtf", {"readme.txt": b"nope"})
+    assert parse_gdtf(str(path)) is None
+
+
+def test_parse_gdtf_empty_description(tmp_path):
+    """Leere description.xml: pygdtf wirft IndexError — muss abgefangen werden."""
+    path = _write_gdtf_zip(tmp_path / "empty_description.gdtf", {"description.xml": b""})
+    assert parse_gdtf(str(path)) is None
+
+
+def test_parse_gdtf_rejects_broken_xml_stub(tmp_path):
+    """pygdtf liefert bei kaputtem XML einen Platzhalter statt einer Exception.
+
+    Der Stub heisst ``Original File Had Broken XML`` (Hersteller ``PyGDTF``)
+    und wuerde sonst als echte Fixture in die Bibliothek wandern und dort
+    jeden Fixture-Namen mit einem Muell-Match "gewinnen" lassen.
+    """
+    path = _write_gdtf_zip(
+        tmp_path / "broken_xml.gdtf",
+        {"description.xml": b"<GDTF><FixtureType Name='x'>"},
+    )
+    assert parse_gdtf(str(path)) is None
+
+
+def test_parse_gdtf_rejects_nameless_fixture(tmp_path):
+    """Eine FixtureType ohne Name ist fuer das Matching nutzlos → None."""
+    path = _write_gdtf_zip(
+        tmp_path / "nameless.gdtf",
+        {"description.xml": b'<GDTF DataVersion="1.2"><FixtureType Name="" '
+                            b'Manufacturer="X"><DMXModes/></FixtureType></GDTF>'},
+    )
+    assert parse_gdtf(str(path)) is None
+
+
+def test_library_scan_survives_one_malformed_gdtf(tmp_path):
+    """Eine defekte Datei darf das Matching fuer alle anderen nicht kippen."""
+    build_gdtf(tmp_path / "Testlight@BeamOne@rev1.gdtf",
+               manufacturer="Testlight", name="Beam One")
+    _write_gdtf_zip(tmp_path / "broken.gdtf", {"readme.txt": b"nope"})
+    _write_gdtf_zip(tmp_path / "empty.gdtf", {"description.xml": b""})
+
+    library = load_gdtf_library(str(tmp_path), force_reload=True)
+
+    assert list(library) == ["Beam One"]
+
+
+# ──── Billion-Laughs-Schutz fuer pygdtfs xml.etree (Review I15) ────
+
+_BILLION_LAUGHS = b"""<?xml version="1.0"?>
+<!DOCTYPE gdtf [
+<!ENTITY a "aaaaaaaaaa">
+<!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">
+<!ENTITY c "&b;&b;&b;&b;&b;&b;&b;&b;&b;&b;">
+<!ENTITY d "&c;&c;&c;&c;&c;&c;&c;&c;&c;&c;">
+<!ENTITY e "&d;&d;&d;&d;&d;&d;&d;&d;&d;&d;">
+]>
+<GDTF DataVersion="1.2"><FixtureType Name="&e;" Manufacturer="&e;"/></GDTF>
+"""
+
+
+def test_parse_gdtf_rejects_entity_expansion(tmp_path):
+    """pygdtf parst mit der ungeschuetzten stdlib — defuse_stdlib() muss greifen.
+
+    ``mvr_enhancer/__init__.py`` ruft ``defusedxml.defuse_stdlib()`` beim Import
+    des Pakets auf; dadurch wirft schon pygdtfs eigener ``ElementTree``-Aufruf
+    bei Entity-Definitionen, und ``parse_gdtf`` fangt das zu ``None`` ab.
+    """
+    path = _write_gdtf_zip(tmp_path / "bomb.gdtf", {"description.xml": _BILLION_LAUGHS})
+    assert parse_gdtf(str(path)) is None
+
+
+def test_library_scan_survives_entity_expansion(tmp_path):
+    path = _write_gdtf_zip(tmp_path / "bomb.gdtf", {"description.xml": _BILLION_LAUGHS})
+    build_gdtf(tmp_path / "Testlight@BeamOne@rev1.gdtf",
+               manufacturer="Testlight", name="Beam One")
+
+    library = load_gdtf_library(str(tmp_path), force_reload=True)
+
+    assert list(library) == ["Beam One"]
+    assert path.is_file()
 
 
 def test_scan_plain_gdtf_folder(tmp_path):
