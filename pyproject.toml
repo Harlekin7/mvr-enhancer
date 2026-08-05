@@ -22,7 +22,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["mvr_enhancer"]
+packages = ["mvr_enhancer", "mvr_enhancer.core"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
