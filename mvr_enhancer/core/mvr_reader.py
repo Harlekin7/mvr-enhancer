@@ -8,6 +8,7 @@ import logging
 import urllib.parse
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 from dataclasses import dataclass, field
 
 import defusedxml.ElementTree as SafeET
@@ -189,8 +190,32 @@ def _collect_elements(parent: ET.Element,
                     non_fixtures.append(element)
 
 
+# Fehlerbilder, die ein defektes MVR-Archiv erzeugen kann und die alle in
+# denselben Vertrag muenden (leere Szene): BadZipFile aus ``zf.read()`` bei
+# CRC-Fehlern, zlib.error bei kaputten Deflate-Streams, ET.ParseError bei
+# unparsebarem XML, ValueError aus ``_safe_parse_xml`` (Groessenlimit) und aus
+# defusedxml (Entity-Expansion), OSError bei I/O-Problemen und RuntimeError
+# (inkl. NotImplementedError) bei verschluesselten oder unbekannt komprimierten
+# Mitgliedern.
+_MVR_READ_ERRORS = (
+    zipfile.BadZipFile,
+    zlib.error,
+    ET.ParseError,
+    ValueError,
+    OSError,
+    RuntimeError,
+)
+
+
 def read_mvr(path: str) -> MvrScene:
     """Liest ein MVR-Archiv und parst die GeneralSceneDescription.
+
+    Fehlervertrag: gibt bei JEDEM Defekt der Datei eine leere ``MvrScene``
+    zurueck (``xml_root is None``) und wirft nie — ``api._do_load_mvr`` prueft
+    genau darauf und zeigt daraus die deutsche Meldung "Diese Datei ist keine
+    gueltige MVR-Datei." Frueher schlugen ``BadZipFile`` aus ``zf.read()``,
+    ``ET.ParseError`` und das ``ValueError`` des XML-Groessenlimits ungefangen
+    bis in die JS-Bruecke durch.
 
     Args:
         path: Pfad zur .mvr Datei.
@@ -199,66 +224,81 @@ def read_mvr(path: str) -> MvrScene:
         MvrScene mit geparsten Fixtures, Nicht-Fixture-Elementen und
         eingebetteten Dateien.
     """
-    scene = MvrScene()
-
     try:
         zf = zipfile.ZipFile(path, "r")
     except zipfile.BadZipFile as e:
         log.error("MVR-Datei ist keine gueltige ZIP-Datei: %s — %s", path, e)
-        return scene
+        return MvrScene()
     except OSError as e:
         log.error("MVR-Datei konnte nicht gelesen werden: %s — %s", path, e)
+        return MvrScene()
+
+    try:
+        with zf:
+            return _read_mvr_archive(zf, path)
+    except _MVR_READ_ERRORS as e:
+        log.error("MVR-Datei konnte nicht gelesen werden: %s — %s: %s",
+                  path, type(e).__name__, e)
+        return MvrScene()
+
+
+def _read_mvr_archive(zf: zipfile.ZipFile, path: str) -> MvrScene:
+    """Liest eingebettete Dateien und die Szenen-XML aus einem offenen Archiv.
+
+    Darf werfen — ``read_mvr`` uebersetzt alles in den Fehlervertrag
+    (leere Szene). Bewusst ausgelagert, damit der ``try``-Block in ``read_mvr``
+    den GESAMTEN Lesevorgang umschliesst und nicht nur den ZIP-Aufbau.
+    """
+    scene = MvrScene()
+
+    # Alle eingebetteten Dateien lesen (mit ZIP-Bomb-Schutz)
+    total_extracted = 0
+    file_count = 0
+    for name in zf.namelist():
+        if name == "GeneralSceneDescription.xml":
+            continue
+        if _is_unsafe_entry_name(name):
+            log.warning(
+                "Eingebetteter ZIP-Eintrag mit Pfad-Traversal "
+                "uebersprungen: %s",
+                name,
+            )
+            continue
+        file_count += 1
+        if file_count > _MAX_EMBEDDED_FILE_COUNT:
+            log.warning(
+                "MVR-Archiv enthaelt zu viele Dateien (>%d), "
+                "ueberspringe restliche: %s",
+                _MAX_EMBEDDED_FILE_COUNT, path,
+            )
+            break
+        info = zf.getinfo(name)
+        if info.file_size > _MAX_EMBEDDED_FILE_SIZE:
+            log.warning(
+                "Eingebettete Datei zu gross, uebersprungen: %s "
+                "(%d bytes > %d bytes)",
+                name, info.file_size, _MAX_EMBEDDED_FILE_SIZE,
+            )
+            continue
+        if total_extracted + info.file_size > _MAX_TOTAL_EXTRACTED_SIZE:
+            log.warning(
+                "MVR-Archiv Gesamt-Extraktionslimit erreicht "
+                "(%d bytes), breche ab: %s",
+                _MAX_TOTAL_EXTRACTED_SIZE, path,
+            )
+            break
+        data = zf.read(name)
+        total_extracted += len(data)
+        scene.embedded_files[name] = data
+
+    # XML parsen
+    xml_name = "GeneralSceneDescription.xml"
+    if xml_name not in zf.namelist():
+        log.error("MVR enthaelt keine %s: %s", xml_name, path)
         return scene
 
-    with zf:
-        # Alle eingebetteten Dateien lesen (mit ZIP-Bomb-Schutz)
-        total_extracted = 0
-        file_count = 0
-        for name in zf.namelist():
-            if name == "GeneralSceneDescription.xml":
-                continue
-            if _is_unsafe_entry_name(name):
-                log.warning(
-                    "Eingebetteter ZIP-Eintrag mit Pfad-Traversal "
-                    "uebersprungen: %s",
-                    name,
-                )
-                continue
-            file_count += 1
-            if file_count > _MAX_EMBEDDED_FILE_COUNT:
-                log.warning(
-                    "MVR-Archiv enthaelt zu viele Dateien (>%d), "
-                    "ueberspringe restliche: %s",
-                    _MAX_EMBEDDED_FILE_COUNT, path,
-                )
-                break
-            info = zf.getinfo(name)
-            if info.file_size > _MAX_EMBEDDED_FILE_SIZE:
-                log.warning(
-                    "Eingebettete Datei zu gross, uebersprungen: %s "
-                    "(%d bytes > %d bytes)",
-                    name, info.file_size, _MAX_EMBEDDED_FILE_SIZE,
-                )
-                continue
-            if total_extracted + info.file_size > _MAX_TOTAL_EXTRACTED_SIZE:
-                log.warning(
-                    "MVR-Archiv Gesamt-Extraktionslimit erreicht "
-                    "(%d bytes), breche ab: %s",
-                    _MAX_TOTAL_EXTRACTED_SIZE, path,
-                )
-                break
-            data = zf.read(name)
-            total_extracted += len(data)
-            scene.embedded_files[name] = data
-
-        # XML parsen
-        xml_name = "GeneralSceneDescription.xml"
-        if xml_name not in zf.namelist():
-            log.error("MVR enthaelt keine %s: %s", xml_name, path)
-            return scene
-
-        xml_data = zf.read(xml_name)
-        scene.xml_root = _safe_parse_xml(xml_data)
+    xml_data = zf.read(xml_name)
+    scene.xml_root = _safe_parse_xml(xml_data)
 
     # UserData und AUXData preservieren
     scene.user_data = scene.xml_root.find("UserData")

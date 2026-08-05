@@ -1,6 +1,6 @@
 """Tests fuer den geharteten MVR-Reader (Groessen-/Zaehl-Limits, Traversal)."""
 
-import pytest
+import zipfile
 
 from mvr_enhancer.core import mvr_reader
 from mvr_enhancer.core.mvr_reader import MvrScene, read_mvr
@@ -54,12 +54,54 @@ def test_reads_fixtures_and_embedded(tmp_path):
 
 
 def test_rejects_oversized_xml(tmp_path, monkeypatch):
+    """Ueber dem XML-Groessenlimit: leere Szene, keine Exception nach draussen.
+
+    ``read_mvr`` haelt einen einheitlichen Fehlervertrag ein — jeder Defekt
+    im Archiv wird geloggt und als leere ``MvrScene`` zurueckgegeben, damit
+    ``api._do_load_mvr`` daraus die deutsche Fehlermeldung "keine gueltige
+    MVR-Datei" bauen kann statt die Bruecke mit einer Exception zu treffen.
+    """
     path = build_mvr(tmp_path / "scene.mvr", fixtures=[])
 
     monkeypatch.setattr(mvr_reader, "_MAX_XML_SIZE", 10)
 
-    with pytest.raises(ValueError, match="size limit"):
-        read_mvr(str(path))
+    assert read_mvr(str(path)) == MvrScene()
+
+
+def test_corrupt_zip_member_returns_empty_scene(tmp_path):
+    """Gueltiger ZIP-Header, defektes Mitglied: ``zf.read()`` wirft BadZipFile.
+
+    Die Datei laesst sich oeffnen und ihr Inhaltsverzeichnis lesen — erst das
+    tatsaechliche Entpacken schlaegt fehl (CRC-Fehler). Vor dem Fix lief
+    dieser Fehler ungefangen bis in die JS-Bruecke durch.
+    """
+    path = tmp_path / "corrupt.mvr"
+    xml = (
+        b"<GeneralSceneDescription verMajor='1' verMinor='5'>"
+        b"<Scene><Layers/></Scene></GeneralSceneDescription>"
+    )
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_STORED) as zf:
+        zf.writestr("GeneralSceneDescription.xml", xml)
+
+    raw = bytearray(path.read_bytes())
+    offset = raw.find(b"<GeneralSceneDescription")
+    assert offset != -1
+    raw[offset] = ord("X")  # gleiche Laenge, kaputte CRC-32
+    path.write_bytes(bytes(raw))
+
+    with zipfile.ZipFile(path) as zf:
+        assert zf.namelist() == ["GeneralSceneDescription.xml"]
+
+    assert read_mvr(str(path)) == MvrScene()
+
+
+def test_malformed_scene_xml_returns_empty_scene(tmp_path):
+    """Kein XML in der GeneralSceneDescription: ET.ParseError -> leere Szene."""
+    path = tmp_path / "not_xml.mvr"
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("GeneralSceneDescription.xml", b"<GeneralSceneDescription><Scene>")
+
+    assert read_mvr(str(path)) == MvrScene()
 
 
 def test_zip_bomb_file_count(tmp_path, monkeypatch):
