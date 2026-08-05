@@ -31,7 +31,13 @@ from mvr_enhancer.core.analysis import (
     _resolve_position,
     parse_position_names,
 )
-from mvr_enhancer.core.gdtf import GdtfFixture, GdtfMode, _normalize, find_gdtf_file
+from mvr_enhancer.core.gdtf import (
+    GdtfFixture,
+    GdtfMode,
+    _normalize,
+    find_gdtf_file,
+    find_matching_gdtf,
+)
 from mvr_enhancer.core.models import (
     Assignment,
     CleanupSummary,
@@ -134,15 +140,21 @@ def _update_fixture_element(
         unit_el.text = "0"
 
 
-def _resolve_mode_name(vw_mode: str, modes: list[GdtfMode]) -> str:
-    """Bestimmt den GDTF-Modus per Substring-Abgleich, sonst ``modes[0]``."""
+def _resolve_mode_name(vw_mode: str, modes: list[GdtfMode]) -> tuple[str, bool]:
+    """Bestimmt den GDTF-Modus per Substring-Abgleich, sonst ``modes[0]``.
+
+    Gibt ``(mode_name, confirmed)`` zurueck: ``confirmed=True`` nur, wenn ein
+    tatsaechlicher Substring-Treffer gegen den urspruenglichen MVR-Modus-Text
+    gefunden wurde — der reine ``modes[0]``-Notnagel gilt nicht als bestaetigt
+    und muss im Report als Fallback auftauchen.
+    """
     vw_mode_lower = (vw_mode or "").lower()
     if vw_mode_lower:
         for mode in modes:
             mode_lower = mode.name.lower()
             if vw_mode_lower in mode_lower or mode_lower in vw_mode_lower:
-                return mode.name
-    return modes[0].name
+                return mode.name, True
+    return modes[0].name, False
 
 
 def _reorganize_layers(
@@ -164,6 +176,11 @@ def _reorganize_layers(
         root.append(scene.user_data)
 
     scene_el = ET.SubElement(root, "Scene")
+
+    # AUXData kommt laut MVR-Spec-Reihenfolge vor Layers innerhalb von Scene.
+    if scene.aux_data is not None:
+        scene_el.append(scene.aux_data)
+
     layers_el = ET.SubElement(scene_el, "Layers")
 
     layer = ET.SubElement(layers_el, "Layer")
@@ -208,9 +225,6 @@ def _reorganize_layers(
         for el in scene.non_fixture_elements:
             group_3d_cl.append(el)
 
-    if scene.aux_data is not None:
-        scene_el.append(scene.aux_data)
-
     return root, position_group_count
 
 
@@ -243,9 +257,9 @@ def enrich_mvr(
         key = _normalize(fixture.name)
         assignment = assignments.get(key)
         # Dropped when there's no assignment at all, the type is unassigned
-        # (gdtf_name is None — e.g. a still-open UI row), or it was
+        # (gdtf_name is None or "" — e.g. a still-open UI row), or it was
         # explicitly marked removed (e.g. a plugbox/distro with no GDTF).
-        if assignment is None or assignment.gdtf_name is None or assignment.removed:
+        if assignment is None or not assignment.gdtf_name or assignment.removed:
             dropped_count += 1
             continue
         kept_fixtures.append(fixture)
@@ -268,34 +282,60 @@ def enrich_mvr(
 
     for key, fixtures_of_type in fixtures_by_type.items():
         assignment = assignments[key]
-        matched = gdtf_library.get(assignment.gdtf_name) if assignment.gdtf_name else None
+        fixture_type = type_by_key.get(key)
+        gdtf_name = assignment.gdtf_name or ""
+
+        # Exact library-key match first; if the assignment's gdtf_name isn't
+        # an exact key (e.g. a display name that doesn't match the library's
+        # dict key verbatim), fall back to the same fuzzy scoring find_gdtf_file
+        # would otherwise use internally — but resolve it *here* too, so the
+        # GdtfFixture used for mode resolution is guaranteed to be the same
+        # one whose file actually gets embedded (previously: on an exact-key
+        # miss, `matched` stayed None even though find_gdtf_file(matched=None)
+        # went on to fuzzy-resolve and embed a *different* file, leaving the
+        # mode resolution blind to that file's real modes and the original,
+        # possibly stale, MVR GDTFMode text untouched with no warning).
+        exact_match = gdtf_library.get(gdtf_name) if gdtf_name else None
+        matched = exact_match
+        if matched is None and gdtf_name:
+            matched = find_matching_gdtf(gdtf_name, gdtf_library, {})
+        # An explicit user assignment silently resolving to a *different*
+        # GDTF than the name it named must not pass unreported.
+        gdtf_substituted = bool(gdtf_name) and exact_match is None and matched is not None
 
         zip_name = ""
         abs_path = find_gdtf_file(
-            assignment.gdtf_name or "", gdtf_library_dir, gdtf_library, {}, matched=matched,
+            gdtf_name, gdtf_library_dir, gdtf_library, {}, matched=matched,
         )
         if abs_path and os.path.isfile(abs_path):
             zip_name = _clean_gdtf_name(os.path.basename(abs_path))
             gdtf_paths[zip_name] = abs_path
         type_gdtf_filename[key] = zip_name
 
+        needs_warning = gdtf_substituted
         if assignment.mode_name:
             mode_name = assignment.mode_name
+        elif matched is not None and matched.modes:
+            existing_mode = fixture_type.existing_mode if fixture_type else ""
+            mode_name, confirmed = _resolve_mode_name(existing_mode, matched.modes)
+            if not confirmed:
+                needs_warning = True
         else:
+            # Mode resolution failed entirely (no matched GDTF, or a matched
+            # GDTF with no modes at all) — always report this.
             mode_name = ""
-            if matched is not None and matched.modes:
-                fixture_type = type_by_key.get(key)
-                existing_mode = fixture_type.existing_mode if fixture_type else ""
-                mode_name = _resolve_mode_name(existing_mode, matched.modes)
-                fallbacks.append(
-                    ModeFallbackWarning(
-                        type_name=fixture_type.name if fixture_type else fixtures_of_type[0].name,
-                        count=len(fixtures_of_type),
-                        gdtf_name=assignment.gdtf_name or "",
-                        mode_name=mode_name,
-                    )
-                )
+            needs_warning = True
         type_mode_name[key] = mode_name
+
+        if needs_warning:
+            fallbacks.append(
+                ModeFallbackWarning(
+                    type_name=fixture_type.name if fixture_type else fixtures_of_type[0].name,
+                    count=len(fixtures_of_type),
+                    gdtf_name=matched.name if matched is not None else gdtf_name,
+                    mode_name=mode_name,
+                )
+            )
 
     # 3. Fixture-Elemente aktualisieren (GDTFSpec/GDTFMode/Addresses/...).
     #    Wichtig: das Stripping von <Position> (Schritt 4b) muss erst NACH
@@ -313,28 +353,37 @@ def enrich_mvr(
     # 4a. Neuen XML-Baum aufbauen (liest <Position> fuer die Gruppierung).
     root, position_group_count = _reorganize_layers(scene, kept_fixtures, group_by_position)
 
-    # 4b. Nicht-standardkonforme Elemente entfernen und verbliebene
-    #     URL-kodierte GDTFSpec-Werte dekodieren.
+    # 4b. Nicht-standardkonforme Elemente entfernen — ueber ALLE <Fixture>-
+    #     Elemente im finalen Baum (``root.iter("Fixture")``), nicht nur
+    #     ``kept_fixtures``: Fixtures, die in einem opaken Nicht-Fixture-
+    #     Element verschachtelt sind (z. B. ein <Fixture> innerhalb eines
+    #     <SceneObject>/<Truss>), landen unveraendert in der "3D"-Gruppe
+    #     (``mvr_reader`` rekursiert nur in GroupObject, nicht in andere Tags)
+    #     und muessten sonst poison-Elemente behalten. Bewusst NICHT ueber
+    #     ``root.iter()`` (alle Elemente): ``AUXData`` hat eigene ``Position``-
+    #     Kinder (Positions-*Definitionen*, keine Fixture-Referenzen) mit
+    #     demselben Tag-Namen — die duerfen nicht mitgestrippt werden.
     stripped_counts: Counter = Counter()
-    for fixture in kept_fixtures:
-        _strip_nonstandard_elements(fixture.element, stripped_counts)
+    for fixture_el in root.iter("Fixture"):
+        _strip_nonstandard_elements(fixture_el, stripped_counts)
 
-        gdtf_el = fixture.element.find("GDTFSpec")
-        if gdtf_el is not None and gdtf_el.text and "%" in gdtf_el.text:
+    # 4c. Referenz-Set aller finalen GDTFSpec-Werte bilden (fuer Orphan-Check),
+    #     ebenfalls ueber den gesamten Baum: eine verschachtelte Fixture in der
+    #     "3D"-Gruppe referenziert ihre GDTF genauso gueltig wie eine exportierte
+    #     Top-Level-Fixture — sonst wird ihre Datei faelschlich als Orphan verworfen.
+    #     Verbliebene URL-kodierte GDTFSpec-Werte werden dabei mit dekodiert.
+    reference_keys: set[str] = set()
+    for gdtf_el in root.iter("GDTFSpec"):
+        if gdtf_el.text and "%" in gdtf_el.text:
             gdtf_el.text = _clean_gdtf_name(gdtf_el.text)
+        if gdtf_el.text:
+            reference_keys |= _gdtf_ref_keys(gdtf_el.text)
 
     ET.indent(root, space="  ")
     tree = ET.ElementTree(root)
     xml_buf = io.BytesIO()
     tree.write(xml_buf, encoding="UTF-8", xml_declaration=True)
     xml_data = xml_buf.getvalue()
-
-    # 5. Referenz-Set aller finalen GDTFSpec-Werte bilden (fuer Orphan-Check).
-    reference_keys: set[str] = set()
-    for fixture in kept_fixtures:
-        gdtf_el = fixture.element.find("GDTFSpec")
-        if gdtf_el is not None and gdtf_el.text:
-            reference_keys |= _gdtf_ref_keys(gdtf_el.text)
 
     # 6. ZIP schreiben: referenzierte/zugeordnete GDTFs + alle Nicht-GDTF-Dateien.
     orphan_names: list[str] = []
