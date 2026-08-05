@@ -133,6 +133,27 @@ def test_mvr_poison_adds_custom_commands_and_dangling_position(tmp_path):
     assert position_el.text not in aux_uuids
 
 
+def test_mvr_omits_aux_data_when_no_positions_given(tmp_path):
+    fixtures = [
+        {
+            "name": "Fixture 1",
+            "uuid": str(uuid4()),
+            "gdtf_spec": "Testlight@Beam One@rev1.gdtf",
+            "gdtf_mode": "Mode 1",
+            "address": 1,
+            "layer": "Layer 1",
+        }
+    ]
+
+    path = build_mvr(tmp_path / "no_aux.mvr", fixtures=fixtures)
+
+    with ZipFile(path) as zf:
+        xml_bytes = zf.read("GeneralSceneDescription.xml")
+
+    root = ElementTree.fromstring(xml_bytes)
+    assert root.find(".//AUXData") is None
+
+
 def test_mvr_embedded_files_are_added_to_zip(tmp_path):
     path = build_mvr(
         tmp_path / "with_embedded.mvr",

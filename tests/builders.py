@@ -34,6 +34,12 @@ def build_gdtf(
     written DMXMode gets exactly ``channel_count`` single-byte DMXChannel
     children (Offset 1..N) attached to one root Geometry, so that
     ``pygdtf`` reports ``dmx_channels_count == channel_count`` per mode.
+
+    Note: ``revision`` only writes the XML ``<Revisions><Revision Text=...>``
+    value; downstream revision detection (later tasks) uses the filename
+    convention ``Manufacturer@Fixture@Revision.gdtf`` instead, so callers that
+    need a specific revision to be *detected* must name the output ``path``
+    accordingly, not rely on this kwarg alone.
     """
     path = Path(path)
 
@@ -170,11 +176,15 @@ def build_mvr(
                 position_el = ET.SubElement(fixture_el, "Position")
                 position_el.text = position_uuid
 
-    aux_data_el = ET.SubElement(scene_el, "AUXData")
-    for position_uuid, position_name in aux_positions.items():
-        ET.SubElement(
-            aux_data_el, "Position", {"uuid": position_uuid, "name": position_name}
-        )
+    # Only emit AUXData when there is something to put in it: a fully-absent
+    # AUXData element is a distinct, testable state (e.g. later tasks exercise
+    # position-name fallback to layer names when no AUXData exists at all).
+    if aux_positions:
+        aux_data_el = ET.SubElement(scene_el, "AUXData")
+        for position_uuid, position_name in aux_positions.items():
+            ET.SubElement(
+                aux_data_el, "Position", {"uuid": position_uuid, "name": position_name}
+            )
 
     xml_bytes = ET.tostring(gsd_root, encoding="UTF-8", xml_declaration=True)
 
