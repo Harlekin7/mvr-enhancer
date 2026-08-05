@@ -727,3 +727,29 @@ input.sel-dark:focus { border-color: var(--blue-400); }
 .share-result-name { font-family: var(--font-mono); font-size: 13px; color: var(--white); }
 .share-result-meta { font-size: 12px; color: var(--text-inverse-muted); margin-top: 2px; }
 .modal-hint { font-size: 12.5px; color: var(--text-inverse-muted); }
+.modal-error { font-size: 13px; color: var(--red-500); margin: -6px 0 14px; }
+
+/* ================================================================ */
+/* Toasts                                                             */
+/* ================================================================ */
+.toast-stack {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 360px;
+}
+.toast {
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 13.5px;
+  color: var(--white);
+  background: var(--surface-card-dark);
+  border: 1px solid var(--border-dark);
+  box-shadow: var(--shadow-lg);
+}
+.toast-error { border-color: rgba(214, 69, 69, 0.5); background: rgba(214, 69, 69, 0.16); }
+.toast-info { border-color: rgba(47, 158, 110, 0.4); background: rgba(47, 158, 110, 0.14); }

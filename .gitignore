@@ -22,3 +22,6 @@ build/pyinstaller-out/
 
 # Superpowers
 .superpowers/
+
+# Generated demo data (tools/make_demo_data.py)
+/demo/
