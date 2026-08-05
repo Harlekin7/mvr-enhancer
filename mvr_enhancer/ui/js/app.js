@@ -100,6 +100,88 @@
     });
   }
 
+  // ──── Watchdogs for long-running ops ────
+  //
+  // Long ops (load_mvr, rescan_library, share_*, run_export) return
+  // {started:true} immediately in production; the real outcome arrives
+  // later via onEvent — either a paired "state"+"result" event (success)
+  // or a "toast" event (failure). If the event channel stalls or the
+  // background thread hangs, nothing would otherwise ever clear flags like
+  // `exporting`/`searchModal.loading`, leaving the UI stuck. Each such call
+  // gets a 30s watchdog that force-resets the UI and shows an error toast
+  // if no matching event shows up in time.
+  //
+  // choose_mvr()/choose_library_dir() are themselves thin wrappers that
+  // return whatever load_mvr()/rescan_library() returns, and Python's
+  // "result" events are tagged with the *inner* method name — so the
+  // watchdog for those two calls is keyed by their aliased target instead
+  // of the literal method name we invoked.
+
+  var WATCHDOG_TIMEOUT_MS = 30000;
+  var pendingWatchdogs = {}; // aliased method name -> setTimeout id
+
+  var WATCHDOG_METHOD_ALIASES = {
+    choose_mvr: "load_mvr",
+    choose_library_dir: "rescan_library",
+  };
+
+  // Silent UI reset run when a watchdog fires OR when a toast arrives
+  // while it's pending (the toast already explains the failure, so no
+  // additional message is shown in that case — just the state cleanup).
+  var WATCHDOG_RESET = {
+    run_export: function () {
+      exporting = false;
+      render();
+    },
+    share_login: function () {
+      pendingLoginModal = false;
+    },
+    share_search: function () {
+      searchModal.loading = false;
+      renderSearchModal();
+    },
+    share_download: function () {
+      searchModal.downloadingRid = null;
+      renderSearchModal();
+    },
+  };
+
+  var WATCHDOG_TIMEOUT_MESSAGE = {
+    run_export: "Der Export meldet sich nicht — bitte erneut versuchen.",
+    load_mvr: "Das Laden meldet sich nicht — bitte erneut versuchen.",
+    rescan_library: "Die Bibliotheks-Aktualisierung meldet sich nicht — bitte erneut versuchen.",
+    share_login: "Die Anmeldung meldet sich nicht — bitte erneut versuchen.",
+    share_logout: "Die Abmeldung meldet sich nicht — bitte erneut versuchen.",
+    share_search: "Die Suche meldet sich nicht — bitte erneut versuchen.",
+    share_download: "Der Download meldet sich nicht — bitte erneut versuchen.",
+  };
+
+  function armWatchdog(calledMethod) {
+    var key = WATCHDOG_METHOD_ALIASES[calledMethod] || calledMethod;
+    clearWatchdog(key, false);
+    pendingWatchdogs[key] = setTimeout(function () {
+      delete pendingWatchdogs[key];
+      if (WATCHDOG_RESET[key]) WATCHDOG_RESET[key]();
+      pushToast(
+        "error",
+        WATCHDOG_TIMEOUT_MESSAGE[key] || "Die Anfrage meldet sich nicht — bitte erneut versuchen."
+      );
+    }, WATCHDOG_TIMEOUT_MS);
+  }
+
+  function clearWatchdog(key, runReset) {
+    if (pendingWatchdogs[key] === undefined) return;
+    clearTimeout(pendingWatchdogs[key]);
+    delete pendingWatchdogs[key];
+    if (runReset && WATCHDOG_RESET[key]) WATCHDOG_RESET[key]();
+  }
+
+  function clearAllWatchdogs(runReset) {
+    Object.keys(pendingWatchdogs).forEach(function (key) {
+      clearWatchdog(key, runReset);
+    });
+  }
+
   // ──── Bridge ────
 
   /**
@@ -113,7 +195,9 @@
    * fresh state directly rather than via an onEvent "state" push. Methods
    * that run as background threads in production return {started:true}
    * instead — those updates arrive later through onEvent, handled by
-   * applyState()/handleResult() independently of this function.
+   * applyState()/handleResult() independently of this function; a
+   * watchdog is armed for those so a stalled/failed background op can't
+   * leave the UI stuck (see armWatchdog() above).
    */
   function callApi(method) {
     var args = Array.prototype.slice.call(arguments, 1);
@@ -131,6 +215,8 @@
         if (result && result.ok) {
           if (result.data && typeof result.data === "object" && !Array.isArray(result.data) && "mvr_loaded" in result.data) {
             applyState(result.data);
+          } else if (result.data && result.data.started) {
+            armWatchdog(method);
           }
         } else if (result && !result.ok) {
           pushToast("error", result.error || "Unbekannter Fehler.");
@@ -217,14 +303,22 @@
 
   function handleToastEvent(evt) {
     var message = evt.message || evt.text || "Unbekannter Fehler.";
+    // A toast means *some* pending long op just resolved (as a failure) —
+    // we can't tell which one from the payload alone (it carries no method
+    // tag), so treat any still-pending watchdog as resolved and run its
+    // silent reset, without re-announcing the timeout message on top of
+    // the real error we're about to show/inline below.
+    clearAllWatchdogs(true);
     if (pendingLoginModal && evt.level === "error") {
       showLoginError(message);
       pendingLoginModal = false;
+      return; // inline modal error already shown — skip the duplicate corner toast
     }
     pushToast(evt.level || "error", message);
   }
 
   function handleResult(method, data) {
+    clearWatchdog(method, false);
     if (method === "share_search") {
       if (Array.isArray(data)) {
         searchModal.results = data;
@@ -258,7 +352,8 @@
     }
     closeModal("modal-share-search");
     if (type && type.assignment && type.assignment.gdtf_name) {
-      pushToast("info", esc(type.assignment.gdtf_name) + " heruntergeladen und zugeordnet.");
+      // renderToasts() escapes t.text itself — pre-escaping here would double-escape.
+      pushToast("info", type.assignment.gdtf_name + " heruntergeladen und zugeordnet.");
     } else {
       pushToast("info", "GDTF heruntergeladen.");
     }
@@ -310,6 +405,7 @@
       pendingLoginModal = false;
     }
     if (id === "modal-share-search") {
+      clearTimeout(searchDebounceTimer);
       searchModal = { typeKey: null, typeName: "", results: [], loading: false, downloadingRid: null };
     }
   }
@@ -780,9 +876,13 @@
 
   function wireStaticListeners() {
     // Accordion header clicks — always allowed, delegated on document.
+    // Manual navigation during the 750ms post-load window must cancel the
+    // pending auto-advance, or it would still snap the user back to step 2
+    // a moment later.
     document.addEventListener("click", function (e) {
       var head = e.target.closest(".sect-head");
       if (head && head.dataset.goto) {
+        cancelAutoAdvance();
         goToStep(Number(head.dataset.goto));
       }
     });
