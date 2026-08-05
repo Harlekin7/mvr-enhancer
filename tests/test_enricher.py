@@ -611,6 +611,64 @@ def test_percent_encoded_gdtf_reference_cleaned_and_kept(tmp_path):
     assert fixture_el.find("GDTFSpec").text == "Robe@Robin@r1.gdtf"
 
 
+def test_export_never_writes_traversal_entry_names(tmp_path):
+    """No ``writestr``/``write`` target may escape the archive root.
+
+    ``mvr_reader`` filters traversal entries on the way IN, but the export
+    side URL-decodes names again (``_clean_gdtf_name``) — a name that looked
+    harmless as a raw ZIP entry can decode into a real ``../``. The embedded
+    files are injected directly here so the export-side guard is exercised
+    on its own, independently of the reader's (now also hardened) filter.
+    """
+    library_dir = tmp_path / "library"
+    build_gdtf(
+        library_dir / "Testlight@Beam One@rev1.gdtf",
+        manufacturer="Testlight",
+        name="Beam One",
+    )
+    gdtf_library = load_gdtf_library(str(library_dir), force_reload=True)
+
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[
+            {"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111",
+             "address": 1, "gdtf_spec": "%2E%2E%2F..%2Fevil.gdtf"},
+        ],
+    )
+
+    scene = read_mvr(str(mvr_path))
+    # Direct injection: the reader would (and now does) reject these itself.
+    scene.embedded_files["%2E%2E%2F..%2Fevil.gdtf"] = b"zip-slip gdtf"
+    scene.embedded_files["../../evil-mesh.glb"] = b"zip-slip mesh"
+    scene.embedded_files["C:\\windows\\system32\\evil.txt"] = b"absolute"
+    scene.embedded_files["/etc/passwd"] = b"rooted"
+    scene.embedded_files["mesh1.glb"] = b"harmless mesh"
+
+    types = aggregate_fixture_types(scene)
+    key = types[0].key
+    # "NoSuchGdtf" resolves to nothing, so the fixture keeps its original
+    # (percent-encoded, traversing) GDTFSpec — which puts the decoded
+    # "../../evil.gdtf" into the kept-reference set and would previously have
+    # been re-emitted verbatim by zf.writestr(clean_name, ...).
+    assignments = {key: Assignment(gdtf_name="NoSuchGdtf", mode_name=None)}
+
+    result = enrich_mvr(scene, types, assignments, str(library_dir), gdtf_library)
+
+    with zipfile.ZipFile(io.BytesIO(result.data)) as zf:
+        names = zf.namelist()
+
+    for name in names:
+        normalized = name.replace("\\", "/")
+        assert not normalized.startswith("/"), name
+        assert ".." not in normalized.split("/"), name
+        assert not (len(normalized) > 1 and normalized[1] == ":"), name
+
+    assert "mesh1.glb" in names
+    assert "GeneralSceneDescription.xml" in names
+    # The skipped entries are reported as discarded, not silently dropped.
+    assert "../../evil.gdtf" in result.report.cleanup.orphan_gdtf_names
+
+
 def test_user_data_survives(tmp_path):
     # Bundled review item: UserData must survive the rebuild. The builder
     # doesn't support emitting UserData directly, so inject it into the raw

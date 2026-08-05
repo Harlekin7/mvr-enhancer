@@ -49,7 +49,7 @@ from mvr_enhancer.core.models import (
     ModeFallbackWarning,
     serialize,
 )
-from mvr_enhancer.core.mvr_reader import read_mvr
+from mvr_enhancer.core.mvr_reader import _is_unsafe_entry_name, read_mvr
 from mvr_enhancer.core.share import GdtfShareClient
 from mvr_enhancer.settings import Settings
 from mvr_enhancer.winsec import decrypt_password, encrypt_password
@@ -784,7 +784,11 @@ class Api:
             for name in self._scene.embedded_files:
                 if name.lower().endswith(".gdtf"):
                     clean_name = _clean_gdtf_name(name)
-                    if clean_name not in kept_reference_keys:
+                    # ``_is_unsafe_entry_name`` spiegelt enricher._safe_zip_target:
+                    # ein Traversal-Name wird beim Export verworfen, auch wenn er
+                    # noch referenziert ist — sonst liefen Vorschau und Report
+                    # bei praeparierten Archiven auseinander.
+                    if clean_name not in kept_reference_keys or _is_unsafe_entry_name(clean_name):
                         orphan_preview.append(clean_name)
 
         return {

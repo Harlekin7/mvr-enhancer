@@ -5,6 +5,7 @@ und eingebetteten Dateien (.gdtf, .3ds, etc.).
 """
 
 import logging
+import urllib.parse
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass, field
@@ -42,6 +43,47 @@ def _safe_parse_xml(xml_data: bytes) -> ET.Element:
 
 # Element-Tags die als Fixture gelten
 _FIXTURE_TAG = "Fixture"
+
+# Maximale Anzahl URL-Dekodier-Runden fuer ZIP-Eintragsnamen (siehe
+# ``_fully_unquote``) — mehr als eine Handvoll Runden ist ausschliesslich
+# ein Angriffsmuster, nicht ein echter Dateiname.
+_MAX_UNQUOTE_ROUNDS = 8
+
+
+def _fully_unquote(name: str) -> str:
+    """URL-dekodiert ``name`` wiederholt, bis sich nichts mehr aendert.
+
+    Notwendig, weil die Export-Seite (``enricher._clean_gdtf_name``) den
+    Eintragsnamen dekodiert, bevor sie ihn erneut ins ZIP schreibt: ein roher
+    Eintrag ``%2E%2E%2F..%2Fevil.gdtf`` sieht als Klartext harmlos aus, wird
+    beim Export aber zu einem echten ``../../evil.gdtf``. Die Traversal-
+    Pruefung muss deshalb auf der voll dekodierten Form arbeiten — und zwar
+    idempotent, damit auch mehrfach kodierte Namen (``%252E%252E%252F``)
+    erfasst werden.
+    """
+    current = name
+    for _ in range(_MAX_UNQUOTE_ROUNDS):
+        decoded = urllib.parse.unquote(current)
+        if decoded == current:
+            return current
+        current = decoded
+    return current
+
+
+def _is_unsafe_entry_name(name: str) -> bool:
+    """True, wenn ein ZIP-Eintragsname aus dem Archiv-Root ausbrechen kann.
+
+    Prueft die voll dekodierte Form (siehe ``_fully_unquote``) auf absolute
+    Pfade, Windows-Laufwerksbuchstaben und ``..``-Segmente.
+    """
+    normalized = _fully_unquote(name).replace("\\", "/")
+    if not normalized:
+        return True
+    if normalized.startswith("/"):
+        return True
+    if len(normalized) > 1 and normalized[1] == ":":
+        return True
+    return ".." in normalized.split("/")
 
 
 @dataclass
@@ -175,12 +217,7 @@ def read_mvr(path: str) -> MvrScene:
         for name in zf.namelist():
             if name == "GeneralSceneDescription.xml":
                 continue
-            normalized_name = name.replace("\\", "/")
-            if (
-                normalized_name.startswith("/")
-                or (len(normalized_name) > 1 and normalized_name[1] == ":")
-                or ".." in normalized_name.split("/")
-            ):
+            if _is_unsafe_entry_name(name):
                 log.warning(
                     "Eingebetteter ZIP-Eintrag mit Pfad-Traversal "
                     "uebersprungen: %s",

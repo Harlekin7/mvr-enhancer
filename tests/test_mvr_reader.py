@@ -106,3 +106,28 @@ def test_path_traversal_entries_skipped(tmp_path):
         ".." not in name.replace("\\", "/").split("/")
         for name in scene.embedded_files
     )
+
+
+def test_percent_encoded_traversal_entries_skipped(tmp_path):
+    """Percent-encoded traversal must be rejected too.
+
+    The raw ZIP entry name is harmless-looking, but ``enricher._clean_gdtf_name``
+    URL-decodes it before re-emitting it into the exported archive — so the
+    reader has to decode (repeatedly, until stable) BEFORE the traversal check,
+    or a ``%2E%2E%2F``-encoded entry sneaks a real ``../`` into the export.
+    """
+    path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[],
+        embedded={
+            "%2E%2E%2F%2E%2E%2Fevil.gdtf": b"evil-content",
+            "%252E%252E%252Fdouble.gdtf": b"double-encoded-evil",
+            "sub%2F%2E%2E%2F%2E%2E%2Fescape.gdtf": b"nested-evil",
+            "%2FC%3A%2Fabsolute.gdtf": b"absolute-evil",
+            "good.gdtf": b"good-content",
+        },
+    )
+
+    scene = read_mvr(str(path))
+
+    assert scene.embedded_files == {"good.gdtf": b"good-content"}

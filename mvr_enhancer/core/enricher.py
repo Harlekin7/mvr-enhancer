@@ -46,7 +46,7 @@ from mvr_enhancer.core.models import (
     FixtureType,
     ModeFallbackWarning,
 )
-from mvr_enhancer.core.mvr_reader import MvrFixture, MvrScene
+from mvr_enhancer.core.mvr_reader import MvrFixture, MvrScene, _is_unsafe_entry_name
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +68,25 @@ def _clean_gdtf_name(name: str) -> str:
     """URL-dekodiert GDTF-Dateinamen (%40 -> @ etc.)."""
     decoded = urllib.parse.unquote(name)
     return decoded.replace("%40", "@")
+
+
+def _safe_zip_target(name: str) -> str | None:
+    """Prueft einen Ziel-Eintragsnamen unmittelbar vor dem Schreiben ins ZIP.
+
+    Gibt ``name`` zurueck, wenn er innerhalb des Archiv-Roots bleibt, sonst
+    ``None``. Notwendig, weil ``_clean_gdtf_name`` Eintragsnamen URL-dekodiert:
+    ein vom Reader als Klartext akzeptierter Name kann hier zu einem echten
+    ``../``-Pfad werden ("Zip-Slip" beim Entpacken des Exports durch das Pult).
+    Die Pruefung sitzt bewusst direkt an der Schreib-Naht, nicht nur beim
+    Einlesen, damit auch direkt in ``scene.embedded_files`` eingesetzte Namen
+    (Programmfehler, Fremd-Code) nie ins Ergebnis-Archiv gelangen.
+    """
+    if _is_unsafe_entry_name(name):
+        log.warning(
+            "ZIP-Eintrag mit Pfad-Traversal nicht exportiert (verworfen): %s", name,
+        )
+        return None
+    return name
 
 
 def _gdtf_ref_keys(spec_text: str) -> set[str]:
@@ -467,17 +486,26 @@ def enrich_mvr(
                     # Wird weiter unten durch unsere aufgeloeste Bibliotheks-
                     # Datei ersetzt (gleicher Ziel-Dateiname).
                     continue
+                if _safe_zip_target(clean_name) is None:
+                    orphan_names.append(clean_name)
+                    continue
                 if clean_name in reference_keys:
                     zf.writestr(clean_name, data)
                     written_gdtf_names.add(clean_name)
                 else:
                     orphan_names.append(clean_name)
             else:
+                if _safe_zip_target(name) is None:
+                    orphan_names.append(name)
+                    continue
                 zf.writestr(name, data)
                 if os.path.splitext(name)[1].lower() in _MESH_EXTENSIONS:
                     mesh_count += 1
 
         for zip_name, abs_path in gdtf_paths.items():
+            if _safe_zip_target(zip_name) is None:
+                orphan_names.append(zip_name)
+                continue
             zf.write(abs_path, zip_name)
             written_gdtf_names.add(zip_name)
 
