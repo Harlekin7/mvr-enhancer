@@ -28,11 +28,17 @@ jobs:
       - name: Run pytest
         run: pytest -q
 
+      # --workpath keeps PyInstaller's scratch directory inside the gitignored
+      # build/pyinstaller-out (its default is ./build, which would collide with
+      # the tracked build/ directory holding the spec and app.ico).
       - name: Build with PyInstaller
-        run: pyinstaller build/pyinstaller.spec --noconfirm --distpath dist
+        run: pyinstaller build/pyinstaller.spec --noconfirm --distpath dist --workpath build/pyinstaller-out
 
+      # fail_on_unmatched_files: without it, a renamed/missing exe publishes an
+      # EMPTY release and the tag looks successful.
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           files: "dist/MVR Enhancer.exe"
+          fail_on_unmatched_files: true
           generate_release_notes: true

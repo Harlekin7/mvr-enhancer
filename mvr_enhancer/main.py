@@ -1,6 +1,7 @@
 """Fenster-Einstiegspunkt: erstellt das pywebview-Fenster und startet die App."""
 
 import logging
+import logging.handlers
 import os
 import sys
 from pathlib import Path
@@ -12,6 +13,67 @@ from mvr_enhancer.api import Api
 log = logging.getLogger(__name__)
 
 _WINDOW_TITLE = "Groh·PA MVR Export"
+
+# Rotierende Log-Datei: im gefrorenen, fensterlosen Build (``console=False``)
+# geht ``basicConfig``s Stream-Ausgabe ins Nichts — ohne Datei-Log gibt es
+# nach einem Absturz beim Nutzer keinerlei Spur.
+_LOG_FILENAME = "mvr-enhancer.log"
+_LOG_MAX_BYTES = 1_000_000
+_LOG_BACKUP_COUNT = 3
+
+
+def _log_dir() -> Path:
+    """Verzeichnis fuer die Log-Datei: ``%APPDATA%/MVR Enhancer``."""
+    base = os.environ.get("APPDATA") or str(Path.home())
+    return Path(base) / "MVR Enhancer"
+
+
+def _setup_logging() -> None:
+    """Konfiguriert Konsolen- und Datei-Logging.
+
+    Ein Fehler beim Anlegen der Log-Datei (schreibgeschuetztes Profil,
+    Roaming-Profil nicht verfuegbar) darf den Start nicht verhindern — er
+    wird nur auf dem Konsolen-Handler vermerkt.
+    """
+    logging.basicConfig(level=logging.INFO)
+    try:
+        log_dir = _log_dir()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        handler = logging.handlers.RotatingFileHandler(
+            log_dir / _LOG_FILENAME,
+            maxBytes=_LOG_MAX_BYTES,
+            backupCount=_LOG_BACKUP_COUNT,
+            encoding="utf-8",
+        )
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+        )
+        logging.getLogger().addHandler(handler)
+        log.info("Log-Datei: %s", log_dir / _LOG_FILENAME)
+    except OSError as e:
+        log.warning("Log-Datei konnte nicht angelegt werden: %s", e)
+
+
+def _show_error_dialog(message: str) -> None:
+    """Zeigt eine native Fehlermeldung — der einzige Kanal im windowed Build.
+
+    Ohne Konsole und ohne funktionierende UI ist ``MessageBoxW`` die letzte
+    Moeglichkeit, dem Nutzer ueberhaupt etwas mitzuteilen.
+    """
+    try:
+        import ctypes
+
+        # 0x10 = MB_ICONERROR
+        ctypes.windll.user32.MessageBoxW(None, message, _WINDOW_TITLE, 0x10)
+    except Exception:  # noqa: BLE001 — letzte Instanz, darf nie selbst werfen
+        log.exception("Fehlerdialog konnte nicht angezeigt werden")
+
+
+def _fail(message: str) -> None:
+    """Loggt, meldet dem Nutzer und beendet den Prozess."""
+    log.error("%s", message)
+    _show_error_dialog(message)
+    raise SystemExit(message)
 
 
 def _ui_path() -> Path:
@@ -27,11 +89,18 @@ def _ui_path() -> Path:
 
 def run() -> None:
     """Erstellt das Hauptfenster und startet die pywebview-Event-Loop (blockiert)."""
-    logging.basicConfig(level=logging.INFO)
+    _setup_logging()
 
     ui_path = _ui_path()
     if not ui_path.is_file():
-        log.error("UI-Datei nicht gefunden: %s", ui_path)
+        # Harter Abbruch statt eines leeren Fensters: ohne index.html ist die
+        # Anwendung nicht bedienbar, und ein weisses Fenster ohne Meldung waere
+        # fuer den Nutzer nicht von einem Absturz zu unterscheiden. Typische
+        # Ursache: ein Build, bei dem die UI-Dateien nicht mitgepackt wurden.
+        _fail(
+            "Die Programmdateien der Benutzeroberflaeche fehlen "
+            f"({ui_path}).\n\nBitte installiere die Anwendung neu."
+        )
 
     api = Api()
 

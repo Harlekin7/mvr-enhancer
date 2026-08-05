@@ -23,3 +23,26 @@ jobs:
 
       - name: Run pytest
         run: pytest -q
+
+      # The exe is built on every push, not just on a tag: a broken spec (a
+      # missing icon, a renamed entry point, a dropped hidden import) would
+      # otherwise only surface during the release run, when the tag already
+      # exists and the release is already half-published.
+      - name: Build with PyInstaller
+        run: pyinstaller build/pyinstaller.spec --noconfirm --distpath dist --workpath build/pyinstaller-out
+
+      - name: Verify exe exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/MVR Enhancer.exe")) {
+            throw "PyInstaller reported success but dist/MVR Enhancer.exe is missing"
+          }
+          Get-Item "dist/MVR Enhancer.exe" | Select-Object Name, Length
+
+      - name: Upload exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mvr-enhancer-exe
+          path: "dist/MVR Enhancer.exe"
+          if-no-files-found: error
+          retention-days: 14

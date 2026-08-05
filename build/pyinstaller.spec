@@ -18,8 +18,15 @@ UI_SRC = os.path.join(REPO_ROOT, "mvr_enhancer", "ui")
 
 # Destination is relative ("mvr_enhancer/ui") so the frozen layout under
 # sys._MEIPASS matches the source-tree layout that mvr_enhancer/main.py
-# resolves via `_MEIPASS / "mvr_enhancer" / "ui" / "index.html"`.
-datas = [(UI_SRC, os.path.join("mvr_enhancer", "ui"))]
+# resolves via `_MEIPASS / "mvr_enhancer" / "ui" / "index.html"`. Written as a
+# literal forward-slash string (PyInstaller normalizes it) so the agreement
+# test in tests/test_main.py can assert on it by reading this file as text.
+UI_DEST = "mvr_enhancer/ui"
+
+datas = [(UI_SRC, UI_DEST)]
+
+# App-Icon: erzeugt von tools/make_icon.py (siehe dort), im Repo eingecheckt.
+ICON = os.path.join(REPO_ROOT, "build", "app.ico")
 
 hiddenimports = [
     "pygdtf",
@@ -60,4 +67,5 @@ exe = EXE(  # noqa: F821
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
+    icon=ICON,
 )
