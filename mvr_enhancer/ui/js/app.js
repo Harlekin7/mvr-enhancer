@@ -264,12 +264,13 @@
     serverState = newState;
 
     if (!wasLoaded && newState.mvr_loaded) {
-      if (dzLoad.active) {
-        var elapsed = Date.now() - dzLoad.startTs;
-        setTimeout(dzFinish, Math.max(0, DZ_MIN_MS - elapsed));
-      } else {
-        scheduleAutoAdvance();
-      }
+      // A reload of an already-loaded scene (wasLoaded already true) does not
+      // take this branch — its completion is signalled precisely by the
+      // load_mvr "result" event in handleResult(), which fires on every
+      // successful load regardless of the mvr_loaded transition and is immune
+      // to unrelated state pushes (rescan_library, share_*, ...) that might
+      // land while the bar is animating.
+      if (!dzLoad.active) scheduleAutoAdvance();
     } else if (wasLoaded && !newState.mvr_loaded) {
       cancelAutoAdvance();
     }
@@ -373,8 +374,17 @@
       finishDownload(data);
     } else if (method === "run_export") {
       handleRunExportResult(data);
+    } else if (method === "load_mvr" && dzLoad.active) {
+      // Fires on EVERY successful load (first load and reload of an
+      // already-loaded scene alike) — the "result" event always follows the
+      // "state" event for the same call (see api.py _emit_after) and never
+      // fires for a different method, so this can't be triggered early by an
+      // unrelated state push (rescan_library, share_*, ...) landing while the
+      // bar is still animating.
+      var elapsed = Date.now() - dzLoad.startTs;
+      dzLoad.finishTimer = setTimeout(dzFinish, Math.max(0, DZ_MIN_MS - elapsed));
     }
-    // load_mvr / rescan_library / share_login / share_logout / startup:
+    // rescan_library / share_login / share_logout / startup:
     // no extra handling needed — the paired "state" event already re-rendered.
   }
 
@@ -646,6 +656,11 @@
     var zone = $("dropzone"), fill = $("dropzone-fill");
     zone.classList.add("loading");
     zone.classList.remove("hidden");
+    // Reload of an already-loaded scene: filecard-block is currently visible
+    // and renderSection1() won't run again until the paired "state" event
+    // arrives (which can be seconds away for a large file) — hide it now so
+    // the loading bar doesn't render stacked on top of the stale filecard.
+    $("filecard-block").classList.add("hidden");
     $("dropzone-title").textContent = DZ_TITLE_LOADING;
     fill.style.transition = "none";
     fill.style.transform = "scaleX(0)";
