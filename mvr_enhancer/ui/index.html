@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MVR Enhancer &middot; GROH&middot;PA</title>
+<link rel="stylesheet" href="assets/fonts/fonts.css" />
+<link rel="stylesheet" href="css/tokens.css" />
+<link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- ══ App-Header ══ -->
+  <header id="header">
+    <span class="wordmark">GROH&middot;PA</span>
+    <span class="header-sep"></span>
+    <span class="subbrand">MVR Export</span>
+    <span class="header-spacer"></span>
+    <span class="version-string">v0.1.0 &middot; DIN SPEC 15801 &middot; MVR 1.6</span>
+    <span class="icon ic-18 ic-blue200" data-icon="settings-2" title="Einstellungen"></span>
+  </header>
+
+  <!-- ══ 01 · Quelle ══ -->
+  <section id="sect-1" class="sect sect-source active">
+    <div class="sect-grid">
+      <div class="rail">
+        <div id="node-1" class="node active">01</div>
+        <div class="rail-line rail-line-grow"></div>
+      </div>
+      <div class="sect-content">
+        <div class="sect-head" data-goto="1">
+          <div class="eyebrow">Schritt 1 &middot; Quelle</div>
+          <div class="title-row">
+            <h2 id="title-1" class="sect-title">Quell-MVR aus Vectorworks</h2>
+            <span id="sum-1" class="sum state-closed">noch keine Datei geladen</span>
+          </div>
+        </div>
+        <div id="wrap-1" class="wrap wrap-fixed">
+          <div class="wrap-inner wrap-inner-fixed">
+            <div id="zoom-1" class="zoom">
+              <div class="zoom-inner zoom-inner-s1">
+
+                <!-- Leerzustand -->
+                <div id="dropzone" class="dropzone" role="button" tabindex="0">
+                  <span class="icon ic-40 ic-blue300" data-icon="upload"></span>
+                  <div class="dropzone-title">MVR-Datei hier ablegen</div>
+                  <div class="dropzone-sub">oder klicken, um eine Datei zu w&auml;hlen &mdash; die 3D-Szene bleibt unangetastet</div>
+                </div>
+
+                <!-- Geladen-Zustand -->
+                <div id="filecard-block" class="filecard-block hidden">
+                  <div id="filecard" class="card filecard">
+                    <div class="filecard-tile">
+                      <span class="icon ic-26 ic-blue300" data-icon="file-box"></span>
+                    </div>
+                    <div class="filecard-meta">
+                      <div id="filecard-name" class="filecard-name"></div>
+                      <div id="filecard-sub" class="filecard-sub"></div>
+                    </div>
+                    <div class="filecard-stats">
+                      <div class="filestat"><div id="stat-fixtures" class="filestat-value">0</div><div class="filestat-label">Fixtures</div></div>
+                      <div class="filestat"><div id="stat-types" class="filestat-value">0</div><div class="filestat-label">Fixture-Typen</div></div>
+                      <div class="filestat"><div id="stat-meshes" class="filestat-value">0</div><div class="filestat-label">3D-Meshes</div></div>
+                      <div class="filestat"><div id="stat-positions" class="filestat-value">0</div><div class="filestat-label">Positionen</div></div>
+                    </div>
+                    <button id="btn-remove" type="button" class="btn btn-outline btn-sm filecard-remove">Entfernen</button>
+                  </div>
+                  <div id="filecard-security" class="security-line">
+                    <span class="icon ic-15 ic-blue300" data-icon="shield-check"></span>
+                    Gepr&uuml;ft: geh&auml;rtetes XML, ZIP-Limits eingehalten, keine &uuml;bersprungenen Dateien
+                  </div>
+                </div>
+
+                <!-- Immer sichtbar -->
+                <div class="s1-grid">
+                  <div class="card info-card">
+                    <div class="info-card-title">Zuletzt verwendet</div>
+                    <div id="recent-list" class="recent-list"></div>
+                  </div>
+                  <div class="card info-card">
+                    <div class="info-card-title">Was mit deiner Datei passiert</div>
+                    <div id="whatlist" class="whatlist">
+                      <div class="whatlist-row"><span class="icon ic-16 ic-blue300" data-icon="box"></span>3D-Szene &amp; Positionen bleiben unangetastet</div>
+                      <div class="whatlist-row"><span class="icon ic-16 ic-blue300" data-icon="link-2"></span>GDTF, DMX-Modus und Patch werden korrekt gesetzt</div>
+                      <div class="whatlist-row"><span class="icon ic-16 ic-blue300" data-icon="eraser"></span>Giftelemente &amp; verwaiste GDTFs werden entfernt &mdash; grandMA3-sicher</div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 02 · Matching ══ -->
+  <section id="sect-2" class="sect sect-matching">
+    <div class="sect-grid">
+      <div class="rail">
+        <div class="rail-line rail-line-fixed32"></div>
+        <div id="node-2" class="node">02</div>
+        <div class="rail-line rail-line-grow"></div>
+      </div>
+      <div class="sect-content">
+        <div class="sect-head" data-goto="2">
+          <div class="eyebrow">Schritt 2 &middot; Matching</div>
+          <div class="title-row">
+            <h2 id="title-2" class="sect-title">GDTF-Zuordnung pro Fixture-Typ</h2>
+            <span id="match-badge" class="badge tone-ondark state-open">0 von 0 zugeordnet</span>
+            <span id="sum-2" class="sum state-closed">wartet auf Quell-MVR</span>
+          </div>
+        </div>
+        <div id="wrap-2" class="wrap wrap-flexible">
+          <div class="wrap-inner wrap-inner-flex">
+            <div id="zoom-2" class="zoom">
+              <div class="zoom-inner zoom-inner-s2">
+
+                <p class="intro-sentence">Jeder Typ braucht eine konkrete GDTF-Datei im richtigen DMX-Modus &mdash; Vorschl&auml;ge kommen aus dem Score-Matching, du hast das letzte Wort.</p>
+
+                <div id="sources-bar" class="card sources-bar">
+                  <div class="source-item">
+                    <span class="icon ic-17 ic-blue300" data-icon="folder-open"></span>
+                    <div>
+                      <div class="source-label">Lokale Bibliothek</div>
+                      <div class="source-value path-link" id="library-path" title="Bibliothekspfad &auml;ndern"></div>
+                    </div>
+                  </div>
+                  <span class="v-sep"></span>
+                  <div class="source-item">
+                    <span class="icon ic-17 ic-blue300" data-icon="globe"></span>
+                    <div>
+                      <div class="source-label">GDTF Share</div>
+                      <div id="share-status-in" class="share-status hidden">
+                        <span class="status-dot"></span>
+                        angemeldet als <b id="share-user-name"></b> <a href="#" id="btn-share-logout">abmelden</a>
+                      </div>
+                      <div id="share-status-out" class="share-status">
+                        <span class="muted">nicht angemeldet</span>
+                        <button id="btn-share-login" type="button" class="btn btn-outline btn-sm">Anmelden</button>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="v-sep"></span>
+                  <label class="chk">
+                    <input type="checkbox" id="chk-gruppieren" checked />
+                    <span class="chk-box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+                    <span class="chk-label">Nach Position gruppieren</span>
+                  </label>
+                  <div class="sources-bar-right">
+                    <button id="btn-overrides" type="button" class="btn btn-outline btn-sm" disabled title="folgt in einem sp&auml;teren Release">Overrides teilen</button>
+                  </div>
+                </div>
+
+                <div class="table-filter-row">
+                  <label class="chk">
+                    <input type="checkbox" id="filter-problems" />
+                    <span class="chk-box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+                    <span class="chk-label">Nur Probleme anzeigen</span>
+                  </label>
+                </div>
+
+                <div class="card table-card">
+                  <div class="table-scroll">
+                    <table id="match-table" class="match-table">
+                      <thead>
+                        <tr>
+                          <th>Fixture-Typ</th>
+                          <th>GDTF-Datei</th>
+                          <th>Score</th>
+                          <th>DMX-Modus</th>
+                          <th>Quelle</th>
+                        </tr>
+                      </thead>
+                      <tbody id="match-tbody"></tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div class="footnote-row">
+                  <span class="icon ic-15 ic-blue300" data-icon="info"></span>
+                  <span>Nicht zugeordnete Typen werden aus dem Export entfernt &mdash; das ist gewollt (Plugboxen &amp; Hilfsobjekte) und steht im Report.</span>
+                </div>
+
+                <div class="continue-row">
+                  <button id="btn-continue" type="button" class="btn btn-primary btn-md">Weiter: Export vorbereiten</button>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 03 · Export ══ -->
+  <section id="sect-3" class="sect sect-export">
+    <div class="sect-grid">
+      <div class="rail">
+        <div class="rail-line rail-line-fixed32"></div>
+        <div id="node-3" class="node">
+          <span class="icon ic-20 ic-white" data-icon="arrow-down-to-line"></span>
+        </div>
+      </div>
+      <div class="sect-content">
+        <div class="sect-head" data-goto="3">
+          <div class="eyebrow">Schritt 3 &middot; Export</div>
+          <div class="title-row">
+            <h2 id="title-3" class="sect-title">Pult-fertiges MVR</h2>
+            <span id="sum-3" class="sum state-closed">wartet auf Matching</span>
+          </div>
+        </div>
+        <div id="wrap-3" class="wrap wrap-flexible">
+          <div class="wrap-inner wrap-inner-flex">
+            <div id="zoom-3" class="zoom">
+              <div class="zoom-inner zoom-inner-s3">
+
+                <div class="s3-grid">
+                  <div class="s3-main">
+
+                    <!-- Wartezustand (kein Quell-MVR geladen) -->
+                    <div id="s3-placeholder" class="waiting-placeholder hidden">wartet auf Matching</div>
+
+                    <!-- Report-Banner (nur nach Export sichtbar) -->
+                    <div id="report-banner" class="report-banner hidden">
+                      <span class="icon ic-28 ic-green" data-icon="circle-check"></span>
+                      <div>
+                        <div class="report-banner-title">Export erfolgreich &mdash; bereit f&uuml;r grandMA3</div>
+                        <div id="report-banner-sub" class="report-banner-sub"></div>
+                      </div>
+                    </div>
+
+                    <div id="export-stats" class="export-stats">
+                      <div class="stat"><div id="es-matched" class="stat-value">0/0</div><div class="stat-label">Fixtures gematcht</div></div>
+                      <div class="stat"><div id="es-embedded" class="stat-value">0</div><div class="stat-label">GDTFs eingebettet</div></div>
+                      <div class="stat"><div id="es-meshes" class="stat-value">0</div><div class="stat-label">Meshes &uuml;bernommen</div></div>
+                      <div class="stat"><div id="es-positions" class="stat-value">0</div><div class="stat-label">Positionsgruppen</div></div>
+                    </div>
+
+                    <div id="warn-stack" class="warn-stack"></div>
+
+                  </div>
+
+                  <div id="export-panel" class="card export-panel">
+
+                    <div id="export-panel-pre" class="export-panel-pre">
+                      <div class="export-target">
+                        <div class="export-target-label">Ziel</div>
+                        <div id="export-target-path-pre" class="export-target-path"></div>
+                      </div>
+                      <div class="export-uuid-row">
+                        <span>Reproduzierbare UUIDs</span>
+                        <span class="badge tone-ondark">aktiv</span>
+                      </div>
+                      <button id="btn-export" type="button" class="btn btn-lg btn-primary btn-full">Exportieren</button>
+                      <div class="export-panel-hint">Danach: vollst&auml;ndiger Report + Diff zum letzten Export</div>
+                    </div>
+
+                    <div id="export-panel-post" class="export-panel-post hidden">
+                      <div class="export-target">
+                        <div class="export-target-label">Ausgabe</div>
+                        <div id="export-target-path-post" class="export-target-path"></div>
+                      </div>
+                      <button id="btn-open-folder" type="button" class="btn btn-primary btn-md btn-full">Ordner &ouml;ffnen</button>
+                      <button id="btn-diff" type="button" class="btn btn-outline btn-md btn-full" disabled>Diff zum letzten Export</button>
+                      <a href="#" id="btn-new-export" class="link-inline">Neuen Export starten</a>
+                    </div>
+
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer id="footer">
+    <span class="footer-brand">GROH&middot;PA</span>
+    <span>Veranstaltungstechnik &middot; Buchholz i.d.N.</span>
+    <span class="header-spacer"></span>
+    <span class="footer-mono">grandMA3-gepr&uuml;fte Pipeline</span>
+  </footer>
+
+</div>
+
+<!-- ══ Modal: GDTF-Share-Login ══ -->
+<div id="modal-share-login" class="modal-overlay hidden">
+  <div class="modal-card modal-card-sm">
+    <button type="button" class="modal-close" data-modal-close="modal-share-login">
+      <span class="icon ic-20 ic-muted" data-icon="x"></span>
+    </button>
+    <h3 class="modal-title">Bei GDTF Share anmelden</h3>
+    <div class="modal-field">
+      <label class="modal-label" for="share-login-user">Benutzername</label>
+      <input id="share-login-user" type="text" class="sel-dark modal-input" autocomplete="username" />
+    </div>
+    <div class="modal-field">
+      <label class="modal-label" for="share-login-pass">Passwort</label>
+      <input id="share-login-pass" type="password" class="sel-dark modal-input" autocomplete="current-password" />
+    </div>
+    <label class="chk modal-remember">
+      <input type="checkbox" id="share-login-remember" checked />
+      <span class="chk-box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
+      <span class="chk-label">Angemeldet bleiben</span>
+    </label>
+    <div id="share-login-error" class="modal-error hidden"></div>
+    <button type="button" id="btn-share-login-submit" class="btn btn-primary btn-md btn-full">Anmelden</button>
+  </div>
+</div>
+
+<!-- ══ Modal: GDTF-Share-Suche ══ -->
+<div id="modal-share-search" class="modal-overlay hidden">
+  <div class="modal-card modal-card-lg">
+    <button type="button" class="modal-close" data-modal-close="modal-share-search">
+      <span class="icon ic-20 ic-muted" data-icon="x"></span>
+    </button>
+    <h3 class="modal-title">Im GDTF Share suchen</h3>
+    <div class="modal-search-row">
+      <span class="icon ic-16 ic-muted" data-icon="search"></span>
+      <input id="share-search-input" type="text" class="modal-search-input" placeholder="GDTF suchen (Hersteller, Modell)&hellip;" />
+    </div>
+    <div id="share-results" class="share-results"></div>
+    <div id="share-search-hint" class="modal-hint">Verbindung zum GDTF Share erforderlich.</div>
+  </div>
+</div>
+
+<!-- ══ Toasts ══ -->
+<div id="toast-stack" class="toast-stack" aria-live="polite"></div>
+
+<script src="assets/icons.js"></script>
+<script>
+  document.querySelectorAll('[data-icon]').forEach(function (el) {
+    el.innerHTML = ICONS[el.getAttribute('data-icon')] || '';
+  });
+</script>
+<script src="js/app.js"></script>
+</body>
+</html>

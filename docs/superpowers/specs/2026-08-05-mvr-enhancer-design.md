@@ -98,7 +98,7 @@ Vanilla HTML/CSS/JS, **pixelgenau nach Handoff-README + Prototyp-Analyse**. Kein
 
 Maßgebliche Feinheiten aus der Prototyp-Analyse (Korrekturen gegenüber README):
 - `--blue-600` ist **#1e7cc4** (Token gewinnt gegen README-Text #1B6FB0); `--border-dark` exakt `rgba(255,255,255,0.12)`.
-- Akkordeon: Schritt 1 wächst **nicht** (`flex:0 0 auto` aktiv), Schritt 2/3 `1 1 auto`; `max-height` 0↔900px, 520ms `cubic-bezier(0.16,1,0.3,1)`; Zoom `scale(0.96) translateY(-14px)`, Opacity 360ms `ease`; Knoten-Transition 320ms Default-`ease`; Titel-Letterspacing 0.02em, S1 `line-height:1.05`; Rail-Geometrie pro Schritt unterschiedlich (S1 ohne Linie oben, S3 ohne Linie unten).
+- Akkordeon: Schritt 1 wächst **nicht** (aktiv `flex:0 1 auto`, inaktiv `0 0 auto` — Wert aus dem Prototyp-Script), Schritt 2/3 aktiv `1 1 auto`; `max-height` 0↔900px, 520ms `cubic-bezier(0.16,1,0.3,1)`; Zoom `scale(0.96) translateY(-14px)`, Opacity 360ms `ease`; Knoten-Transition 320ms Default-`ease`; Titel-Letterspacing 0.02em, S1 `line-height:1.05`; Rail-Geometrie pro Schritt unterschiedlich (S1 ohne Linie oben, S3 ohne Linie unten).
 - Dunkles Select selbst bauen (Prototyp-Bug: weißes Feld): `background:var(--navy-900)`, Border `rgba(255,255,255,0.25)`, `color:#fff`, Chevron hell, `color-scheme:dark`.
 - Export-Button: normal Primary-Blau „Exportieren"; bei offenen Warnungen Amber „Mit N Warnungen exportieren" (dynamisch, nicht hartcodiert).
 - Badges/Zusammenfassungen („N von M zugeordnet", „N offene Punkte") aus echten Daten berechnen; Problemzeilen-BG nur für offen/Fallback, nicht für „entfernt"; Score `toFixed(2)`, kein Score = En-Dash im Badge, leere Modus-Zelle = Em-Dash.

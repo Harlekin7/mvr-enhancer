@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mvr-enhancer"
+version = "0.1.0"
+description = "MVR Enhancement Tool"
+requires-python = ">=3.10"
+dependencies = [
+    "pywebview>=5,<7",
+    "pygdtf>=1.0.0,<2",
+    "defusedxml>=0.7.1,<1",
+    "certifi>=2024.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7,<11",
+    "ruff",
+    "pyinstaller>=6",
+]
+
+[tool.setuptools]
+packages = ["mvr_enhancer", "mvr_enhancer.core"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
