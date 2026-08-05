@@ -188,11 +188,26 @@ def _reorganize_layers(
     scene: MvrScene,
     kept_fixtures: list[MvrFixture],
     group_by_position: bool,
+    layer_mode: str = "single",
 ) -> tuple[ET.Element, int]:
     """Baut den XML-Baum mit Layer- und Gruppen-Struktur neu auf.
 
     Gibt das neue Root-Element und die Anzahl gebildeter Positions-Gruppen
     zurueck (0, wenn ``group_by_position=False``).
+
+    Im Modus ``layer_mode="per_layer"`` (mit vorhandener ``scene.layers``-
+    Provenienz) bleiben die Original-Layer der Quell-MVR zusaetzlich zum
+    Export-Layer erhalten: fuer jeden Original-Layer mit mindestens einem
+    Nicht-Fixture-Element wird ein eigener ``<Layer>`` mit dessen UUID,
+    Name und Matrix (mit Fallbacks, falls diese in der Quelle fehlen)
+    angelegt, der genau eine "3D"-``GroupObject`` mit dessen Nicht-Fixture-
+    Elementen enthaelt. Original-Layer ohne Nicht-Fixture-Elemente (z. B.
+    ein Layer, dessen einzige Inhalte entfernte Fixtures waren) entfallen
+    komplett. Im Export-Layer selbst entsteht in diesem Modus KEINE
+    zusaetzliche "3D"-Gruppe. Traegt die Szene keine Layer-Provenienz
+    (``scene.layers`` leer, z. B. synthetisch konstruiert), greift der
+    ``single``-Modus als Fallback, damit Nicht-Fixture-Elemente nicht
+    verloren gehen.
     """
     root = ET.Element("GeneralSceneDescription")
     root.set("verMajor", "1")
@@ -242,7 +257,29 @@ def _reorganize_layers(
         for fixture in kept_fixtures:
             child_list.append(fixture.element)
 
-    if scene.non_fixture_elements:
+    if layer_mode == "per_layer" and scene.layers:
+        for index, layer_info in enumerate(scene.layers):
+            if not layer_info.non_fixture_elements:
+                continue
+            orig_uuid = layer_info.uuid or str(uuid.uuid5(_NS, f"layer_orig_{index}"))
+            orig_layer = ET.SubElement(layers_el, "Layer")
+            orig_layer.set("uuid", orig_uuid)
+            orig_layer.set("name", layer_info.name or f"Layer {index + 1}")
+            orig_matrix = ET.SubElement(orig_layer, "Matrix")
+            orig_matrix.text = layer_info.matrix_text or _IDENTITY_MATRIX
+            orig_cl = ET.SubElement(orig_layer, "ChildList")
+            group_3d = ET.SubElement(orig_cl, "GroupObject")
+            group_3d.set("uuid", str(uuid.uuid5(_NS, f"group_3D_{orig_uuid}")))
+            group_3d.set("name", "3D")
+            group_3d_matrix = ET.SubElement(group_3d, "Matrix")
+            group_3d_matrix.text = _IDENTITY_MATRIX
+            group_3d_cl = ET.SubElement(group_3d, "ChildList")
+            for el in layer_info.non_fixture_elements:
+                group_3d_cl.append(el)
+    elif scene.non_fixture_elements:
+        # single-Modus — 3D-Gruppe im Export-Layer. Greift auch als
+        # Fallback, wenn eine synthetische Szene keine Layer-Provenienz
+        # traegt (layers == []).
         group_3d = ET.SubElement(child_list, "GroupObject")
         group_3d.set("uuid", str(uuid.uuid5(_NS, "group_3D")))
         group_3d.set("name", "3D")
@@ -329,6 +366,7 @@ def enrich_mvr(
     gdtf_library_dir: str,
     gdtf_library: dict[str, GdtfFixture],
     group_by_position: bool = True,
+    layer_mode: str = "single",
 ) -> EnrichResult:
     """Reichert ``scene`` typ-basiert an und liefert ein neues MVR-ZIP + Report.
 
@@ -341,7 +379,17 @@ def enrich_mvr(
     das Fixture-Element aktualisiert. Nicht mehr referenzierte eingebettete
     ``.gdtf``-Dateien werden verworfen; alle anderen eingebetteten Dateien
     (Meshes etc.) bleiben unveraendert erhalten.
+
+    ``layer_mode="single"`` (Default) sammelt alle Nicht-Fixture-Elemente
+    in einer "3D"-Gruppe innerhalb des einen Export-Layers. Bei
+    ``layer_mode="per_layer"`` bleiben stattdessen die Original-Layer der
+    Quell-MVR zusaetzlich zum Export-Layer erhalten, je mit einer eigenen
+    "3D"-Gruppe fuer deren Nicht-Fixture-Elemente. Jeder andere Wert wird
+    auf ``"single"`` normalisiert.
     """
+    if layer_mode != "per_layer":
+        layer_mode = "single"
+
     type_by_key = {t.key: t for t in types}
 
     # 1. Fixtures klassifizieren: behalten vs. verwerfen.
@@ -445,7 +493,9 @@ def enrich_mvr(
         )
 
     # 4a. Neuen XML-Baum aufbauen (liest <Position> fuer die Gruppierung).
-    root, position_group_count = _reorganize_layers(scene, kept_fixtures, group_by_position)
+    root, position_group_count = _reorganize_layers(
+        scene, kept_fixtures, group_by_position, layer_mode,
+    )
 
     # 4b. Nicht-standardkonforme Elemente entfernen — ueber ALLE <Fixture>-
     #     Elemente im finalen Baum (``root.iter("Fixture")``), nicht nur
