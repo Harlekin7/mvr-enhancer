@@ -1,1 +1,4 @@
-# Entry point folgt in main.py
+from mvr_enhancer.main import run
+
+if __name__ == "__main__":
+    run()
