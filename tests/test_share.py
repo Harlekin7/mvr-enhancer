@@ -118,6 +118,30 @@ def test_download_size_limit(tmp_path, monkeypatch):
     assert list(library_dir.glob("*")) == []
 
 
+def test_filename_for_download_strips_path_traversal():
+    """A malicious/odd Content-Disposition must not escape library_dir."""
+    client = GdtfShareClient()
+    client._last_content_disposition = 'attachment; filename="../../evil.gdtf"'
+
+    filename = client._filename_for_download(1)
+
+    assert filename == "evil.gdtf"
+    assert os.sep not in filename
+    assert "/" not in filename
+
+
+def test_filename_for_download_normal_roundtrip():
+    """A well-formed Content-Disposition filename is used as-is (basename)."""
+    client = GdtfShareClient()
+    client._last_content_disposition = (
+        'attachment; filename="Vendor@Fixture@rev.gdtf"'
+    )
+
+    filename = client._filename_for_download(1)
+
+    assert filename == "Vendor@Fixture@rev.gdtf"
+
+
 def test_list_cache_roundtrip(tmp_path, monkeypatch):
     cache_path = str(tmp_path / "share_list_cache.json")
     fixtures = _fixture_entries()

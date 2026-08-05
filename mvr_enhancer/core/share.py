@@ -79,12 +79,22 @@ class GdtfShareClient:
         endgueltige Entscheidung ueber "zu gross" trifft ``download()``
         anhand der zurueckgegebenen Bytes selbst, damit dieser Schutz auch
         bei gemockten Requests in Tests greift.
+
+        Bei ``data`` (Form-POST) wird ``Content-Type:
+        application/x-www-form-urlencoded`` explizit gesetzt. CPython's
+        ``AbstractHTTPHandler.do_request_`` wuerde diesen Header ohnehin
+        automatisch ergaenzen, wenn er fehlt (``Lib/urllib/request.py``,
+        ``do_request_``); er wird hier trotzdem explizit gesetzt, damit das
+        Verhalten unabhaengig vom Handler-Verhalten selbsterklaerend bleibt.
         """
         url = f"{GDTF_SHARE_BASE}/{slug}"
         if params:
             url = f"{url}?{urllib.parse.urlencode(params)}"
         body = urllib.parse.urlencode(data).encode() if data is not None else None
-        req = urllib.request.Request(url, data=body, method=method)
+        headers = (
+            {"Content-Type": "application/x-www-form-urlencoded"} if body is not None else {}
+        )
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
             with self._opener.open(req, timeout=30) as resp:
                 self._last_content_disposition = resp.headers.get("Content-Disposition", "")
