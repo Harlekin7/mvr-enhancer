@@ -303,7 +303,7 @@ def test_share_login_updates_state(tmp_path, monkeypatch):
     def fake_request(method, slug, params=None, data=None):
         assert slug == "login.php"
         assert data == {"user": "alice", "password": "secret"}
-        return 200, json.dumps({"result": True}).encode()
+        return 200, json.dumps({"result": True}).encode(), ""
 
     monkeypatch.setattr(api._share, "_request", fake_request)
 
@@ -533,7 +533,7 @@ def test_threaded_mode_pushes_state_result_and_toast_events(tmp_path, monkeypatc
     def fake_request(method, slug, params=None, data=None):
         return 200, json.dumps(
             {"result": True, "list": [{"rid": 1, "manufacturer": "GLP", "fixture": "Impression X5"}]}
-        ).encode()
+        ).encode(), ""
 
     monkeypatch.setattr(api._share, "_request", fake_request)
     api._share.logged_in = True
@@ -619,7 +619,7 @@ def test_auto_login_on_startup(tmp_path, monkeypatch):
 
     def fake_request(method, slug, params=None, data=None):
         assert data == {"user": "alice", "password": "secret"}
-        return 200, json.dumps({"result": True}).encode()
+        return 200, json.dumps({"result": True}).encode(), ""
 
     monkeypatch.setattr(api._share, "_request", fake_request)
 
@@ -721,7 +721,7 @@ def test_share_download_sets_source_share(tmp_path, monkeypatch):
 
     def fake_request(method, slug, params=None, data=None):
         assert slug == "downloadFile.php"
-        return 200, gdtf_bytes
+        return 200, gdtf_bytes, ""
 
     monkeypatch.setattr(api._share, "_request", fake_request)
 
@@ -736,7 +736,7 @@ def test_share_login_remember_false_persists_no_password(tmp_path, monkeypatch):
     api = _make_api(tmp_path)
 
     def fake_request(method, slug, params=None, data=None):
-        return 200, json.dumps({"result": True}).encode()
+        return 200, json.dumps({"result": True}).encode(), ""
 
     monkeypatch.setattr(api._share, "_request", fake_request)
 

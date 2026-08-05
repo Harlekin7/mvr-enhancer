@@ -22,7 +22,7 @@ import urllib.request
 from http.cookiejar import CookieJar
 
 from mvr_enhancer.core.constants import MAX_GDTF_DOWNLOAD_SIZE
-from mvr_enhancer.core.gdtf import GdtfFixture, import_gdtf, token_match
+from mvr_enhancer.core.gdtf import GdtfFixture, import_gdtf, parse_gdtf, token_match
 
 log = logging.getLogger(__name__)
 
@@ -52,8 +52,6 @@ class GdtfShareClient:
         self._password: str = ""
         self._fixture_list: list[dict] | None = None
         self._cache_path = cache_path
-        self._retry_active = False
-        self._last_content_disposition = ""
 
     # ──── Netzwerk-Naht ────
 
@@ -63,15 +61,24 @@ class GdtfShareClient:
         slug: str,
         params: dict | None = None,
         data: dict | None = None,
-    ) -> tuple[int, bytes]:
+    ) -> tuple[int, bytes, str]:
         """Fuehrt einen HTTP-Request gegen die GDTF Share API aus.
 
         Einzige tatsaechliche Netzwerk-I/O-Stelle des Clients — Tests
         ersetzen ausschliesslich diese Methode via monkeypatch. Gibt
-        ``(status_code, body_bytes)`` zurueck; ein ``HTTPError`` wird
-        abgefangen und ebenfalls als ``(code, body)`` zurueckgegeben,
-        damit Aufrufer nur einen Fehlerpfad (Statuscode-Pruefung) behandeln
-        muessen statt zwei (Exception vs. Rueckgabewert).
+        ``(status_code, body_bytes, content_disposition)`` zurueck; ein
+        ``HTTPError`` wird abgefangen und ebenfalls als
+        ``(code, body, content_disposition)`` zurueckgegeben, damit Aufrufer
+        nur einen Fehlerpfad (Statuscode-Pruefung) behandeln muessen statt
+        zwei (Exception vs. Rueckgabewert).
+
+        ``content_disposition`` ist bewusst Teil des Rueckgabewerts und wird
+        NICHT auf der Instanz zwischengespeichert: der Header gehoert zu
+        genau dieser Antwort. Als Instanz-Attribut (fruehere Fassung:
+        ``self._last_content_disposition``) war er ein Seitenkanal, ueber den
+        sich zwei parallele Downloads gegenseitig den Zieldateinamen
+        ueberschreiben und damit das falsche GDTF unter dem Namen des
+        anderen in die Bibliothek legen konnten.
 
         Liest die Antwort in 64-KiB-Chunks und bricht das Lesen ab, sobald
         ``MAX_GDTF_DOWNLOAD_SIZE`` ueberschritten ist (Schutz vor
@@ -97,7 +104,7 @@ class GdtfShareClient:
         req = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
             with self._opener.open(req, timeout=30) as resp:
-                self._last_content_disposition = resp.headers.get("Content-Disposition", "")
+                disposition = resp.headers.get("Content-Disposition", "")
                 chunks = []
                 downloaded = 0
                 while True:
@@ -108,12 +115,10 @@ class GdtfShareClient:
                     downloaded += len(chunk)
                     if downloaded > MAX_GDTF_DOWNLOAD_SIZE:
                         break
-                return resp.status, b"".join(chunks)
+                return resp.status, b"".join(chunks), disposition
         except urllib.error.HTTPError as e:
-            self._last_content_disposition = (
-                e.headers.get("Content-Disposition", "") if e.headers else ""
-            )
-            return e.code, e.read()
+            disposition = e.headers.get("Content-Disposition", "") if e.headers else ""
+            return e.code, e.read(), disposition
 
     def _extract_error(self, status: int, body: bytes) -> str | None:
         """Extrahiert ein ``error``-Feld aus einer JSON-Fehlerantwort, falls vorhanden."""
@@ -141,7 +146,7 @@ class GdtfShareClient:
         """
         self.last_error = ""
         try:
-            status, resp_body = self._request(
+            status, resp_body, _disposition = self._request(
                 "POST",
                 "login.php",
                 data={"user": self._username, "password": self._password},
@@ -190,12 +195,20 @@ class GdtfShareClient:
 
     # ──── Fixture-Liste ────
 
-    def get_fixture_list(self, force_refresh: bool = False) -> list[dict]:
+    def get_fixture_list(
+        self, force_refresh: bool = False, *, allow_retry: bool = True,
+    ) -> list[dict]:
         """Ruft die komplette Fixture-Liste vom GDTF Share ab (gecacht).
 
         Ohne ``force_refresh`` wird zuerst der In-Memory-Cache, dann ein
         etwaiger Disk-Cache (``cache_path``) genutzt, bevor das Netzwerk
         kontaktiert wird. ``force_refresh=True`` erzwingt einen Netz-Request.
+
+        ``allow_retry`` steuert den einmaligen Relogin-Versuch nach HTTP 401
+        und ist bewusst ein Parameter statt eines Instanz-Attributs (fruehere
+        Fassung: ``self._retry_active``): als geteilter Zustand haette ein
+        paralleler Aufruf den Relogin-Schutz des anderen zuruecksetzen oder
+        dessen legitimen Retry unterdruecken koennen.
         """
         if not force_refresh:
             if self._fixture_list is not None:
@@ -210,19 +223,15 @@ class GdtfShareClient:
 
         self.last_error = ""
         try:
-            status, body = self._request("GET", "getList.php")
+            status, body, _disposition = self._request("GET", "getList.php")
         except OSError as e:
             self.last_error = str(e)
             log.warning("GDTF Share Liste konnte nicht abgerufen werden: %s", e)
             return []
 
-        if status == 401 and not self._retry_active:
-            self._retry_active = True
-            try:
-                if self._relogin():
-                    return self.get_fixture_list(force_refresh=True)
-            finally:
-                self._retry_active = False
+        if status == 401 and allow_retry:
+            if self._relogin():
+                return self.get_fixture_list(force_refresh=True, allow_retry=False)
             self.last_error = "Session abgelaufen, Relogin fehlgeschlagen"
             return []
 
@@ -302,30 +311,40 @@ class GdtfShareClient:
 
     # ──── Download ────
 
-    def download(self, rid: int, library_dir: str) -> GdtfFixture | None:
-        """Laedt eine Fixture-Datei herunter und importiert sie in die Bibliothek."""
+    def download(
+        self, rid: int, library_dir: str, *, allow_retry: bool = True,
+    ) -> GdtfFixture | None:
+        """Laedt eine Fixture-Datei herunter und importiert sie in die Bibliothek.
+
+        Die Bytes landen zuerst unter einem ``.part``-Namen und werden erst
+        nach erfolgreichem Parsen per ``os.replace`` auf den Zielnamen
+        gezogen: ein defekter Download darf keine unbrauchbare Datei in der
+        Bibliothek hinterlassen, an der jeder spaetere Scan erneut scheitert.
+
+        ``allow_retry`` steuert (wie in ``get_fixture_list``) den einmaligen
+        Relogin nach HTTP 401 als reiner Aufruf-Zustand. Der Download laeuft
+        bewusst NICHT unter ``self._lock``: ``_relogin()`` nimmt denselben
+        Lock und wuerde sich selbst blockieren.
+        """
         if not self.logged_in:
             self.last_error = "Nicht eingeloggt"
             return None
 
         os.makedirs(library_dir, exist_ok=True)
         self.last_error = ""
-        dest = ""
 
         try:
-            status, body = self._request("GET", "downloadFile.php", params={"rid": rid})
+            status, body, disposition = self._request(
+                "GET", "downloadFile.php", params={"rid": rid},
+            )
         except OSError as e:
             self.last_error = str(e)
             log.warning("GDTF Download fehlgeschlagen (rid=%d): %s", rid, e)
             return None
 
-        if status == 401 and not self._retry_active:
-            self._retry_active = True
-            try:
-                if self._relogin():
-                    return self.download(rid, library_dir)
-            finally:
-                self._retry_active = False
+        if status == 401 and allow_retry:
+            if self._relogin():
+                return self.download(rid, library_dir, allow_retry=False)
             self.last_error = "Session abgelaufen, Relogin fehlgeschlagen"
             return None
 
@@ -342,28 +361,65 @@ class GdtfShareClient:
             log.warning("GDTF Download abgebrochen (rid=%d): %s", rid, self.last_error)
             return None
 
-        filename = self._filename_for_download(rid)
+        filename = self._filename_for_download(rid, disposition)
         dest = os.path.join(library_dir, filename)
+        tmp_dest = f"{dest}.part"
+
         try:
-            with open(dest, "wb") as f:
+            with open(tmp_dest, "wb") as f:
                 f.write(body)
         except OSError as e:
             self.last_error = str(e)
             log.warning("GDTF Download konnte nicht gespeichert werden (rid=%d): %s", rid, e)
+            self._discard(tmp_dest)
             return None
 
+        # Erst validieren, dann veroeffentlichen.
+        if parse_gdtf(tmp_dest) is None:
+            self.last_error = "GDTF-Datei konnte nicht importiert werden"
+            log.warning(
+                "GDTF Download unbrauchbar, verworfen (rid=%d): %s", rid, filename,
+            )
+            self._discard(tmp_dest)
+            return None
+
+        try:
+            os.replace(tmp_dest, dest)
+        except OSError as e:
+            self.last_error = str(e)
+            log.warning("GDTF Download konnte nicht gespeichert werden (rid=%d): %s", rid, e)
+            self._discard(tmp_dest)
+            return None
+
+        # import_gdtf() parst erneut — diesmal unter dem endgueltigen Namen,
+        # aus dem die Revision abgeleitet wird — und schreibt den JSON-Cache.
         fixture = import_gdtf(dest, library_dir)
         if fixture is None:
             self.last_error = "GDTF-Datei konnte nicht importiert werden"
+            self._discard(dest)
             return None
         return fixture
 
-    def _filename_for_download(self, rid: int) -> str:
-        """Bestimmt den Zieldateinamen aus Content-Disposition oder einem Fallback."""
-        cd = self._last_content_disposition or ""
+    @staticmethod
+    def _discard(path: str) -> None:
+        """Loescht eine (Zwischen-)Datei; Fehler beim Loeschen sind nicht fatal."""
+        try:
+            os.unlink(path)
+        except OSError as e:
+            log.debug("Temporaere Download-Datei konnte nicht entfernt werden: %s", e)
+
+    @staticmethod
+    def _filename_for_download(rid: int, content_disposition: str = "") -> str:
+        """Bestimmt den Zieldateinamen aus Content-Disposition oder einem Fallback.
+
+        ``content_disposition`` wird als Parameter uebergeben (nicht von der
+        Instanz gelesen), damit der Name eindeutig zur jeweiligen Antwort
+        gehoert — siehe ``_request``.
+        """
+        cd = content_disposition or ""
         if "filename=" in cd:
             filename = cd.split("filename=")[-1].strip('" ')
-            filename = os.path.basename(filename)  # Path-Traversal verhindern
+            filename = os.path.basename(filename.replace("\\", "/"))  # Traversal
             if filename:
                 return filename
         return f"fixture_{rid}.gdtf"
