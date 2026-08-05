@@ -1,0 +1,36 @@
+/* Typography — Barlow Condensed (display) + Barlow (text) + JetBrains Mono */
+:root {
+  --font-display: "Barlow Condensed", "Barlow Semi Condensed", system-ui, sans-serif;
+  --font-heading: "Barlow Semi Condensed", "Barlow", system-ui, sans-serif;
+  --font-body:    "Barlow", system-ui, -apple-system, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+
+  /* Type scale (px) */
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-lg:   18px;
+  --text-xl:   22px;
+  --text-2xl:  28px;
+  --text-3xl:  36px;
+  --text-4xl:  48px;
+  --text-5xl:  64px;
+  --text-6xl:  88px;
+
+  /* Weights */
+  --fw-regular: 400; /* @kind font */
+  --fw-medium:  500; /* @kind font */
+  --fw-semibold:600; /* @kind font */
+  --fw-bold:    700; /* @kind font */
+
+  /* Line heights */
+  --lh-tight:   1.05; /* @kind font */
+  --lh-snug:    1.2; /* @kind font */
+  --lh-normal:  1.5; /* @kind font */
+  --lh-relaxed: 1.65; /* @kind font */
+
+  /* Letter spacing — display headlines are uppercase + tracked */
+  --tracking-display: 0.01em; /* @kind font */
+  --tracking-label:   0.14em; /* @kind font */
+  --tracking-tight:  -0.01em; /* @kind font */
+}

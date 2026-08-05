@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/groh-p-a-design-system-0055fb46-42fa-44cf-b154-9bba8b287952/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/groh-p-a-design-system-0055fb46-42fa-44cf-b154-9bba8b287952/tokens/colors.css">
+<link rel="stylesheet" href="_ds/groh-p-a-design-system-0055fb46-42fa-44cf-b154-9bba8b287952/tokens/typography.css">
+<link rel="stylesheet" href="_ds/groh-p-a-design-system-0055fb46-42fa-44cf-b154-9bba8b287952/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/groh-p-a-design-system-0055fb46-42fa-44cf-b154-9bba8b287952/tokens/effects.css">
+<link rel="stylesheet" href="_ds/groh-p-a-design-system-0055fb46-42fa-44cf-b154-9bba8b287952/styles.css">
+<script src="_ds/groh-p-a-design-system-0055fb46-42fa-44cf-b154-9bba8b287952/_ds_bundle.js"></script>
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+body{margin:0;background:var(--navy-950);font-family:'Barlow',sans-serif;color:var(--blue-100)}
+a{color:var(--blue-300);text-decoration:none}a:hover{color:var(--blue-200)}
+select{color-scheme:dark}
+</style>
+</helmet>
+
+<div style="display:flex;flex-direction:column;height:var(--app-min-h,100vh);overflow:hidden">
+<!-- ══ App-Header ══ -->
+<header style="background:var(--navy-950);display:flex;align-items:center;gap:16px;padding:0 28px;height:56px;border-bottom:1px solid var(--border-dark)">
+  <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:22px;letter-spacing:0.06em;color:var(--white)">GROH·PA</span>
+  <span style="width:1px;height:22px;background:var(--border-dark)"></span>
+  <span style="font-family:'Barlow Semi Condensed',sans-serif;font-weight:600;font-size:15px;letter-spacing:0.04em;color:var(--blue-300);text-transform:uppercase">MVR Export</span>
+  <span style="flex:1"></span>
+  <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-inverse-muted)">v1.0 · DIN SPEC 15801 · MVR 1.6</span>
+  <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="settings-2" style="width:18px;height:18px;color:var(--blue-200)"></i></span>
+</header>
+
+<!-- ══ 01 · Quelle ══ -->
+<section data-screen-label="01 Quelle" style="background-image:linear-gradient(180deg,rgba(8,19,31,0.60) 0%,rgba(8,19,31,0.92) 100%),url('assets/backgrounds/hintergrund.jpg');background-size:cover;background-position:center;flex:{{ s1Flex }};min-height:0;display:flex;flex-direction:column;transition:flex-grow 520ms cubic-bezier(0.16,1,0.3,1)">
+  <div style="max-width:1240px;margin:0 auto;padding:36px 24px 0;display:grid;grid-template-columns:88px minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:0 20px;flex:1 1 auto;min-height:0;width:100%;box-sizing:border-box">
+    <div style="display:flex;flex-direction:column;align-items:center">
+      <div style="{{ s1Node }}"><sc-if value="{{ s1Fertig }}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="check" style="width:20px;height:20px;color:var(--blue-300)"></i></span></sc-if><sc-if value="{{ s1Offen }}" hint-placeholder-val="{{ true }}">01</sc-if></div>
+      <div style="flex:1;width:2px;background:rgba(255,255,255,0.16);margin-top:8px"></div>
+    </div>
+    <div style="padding-bottom:28px;display:flex;flex-direction:column;min-height:0">
+      <div onClick="{{ geheZu1 }}" style="cursor:pointer">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--blue-300);margin-bottom:6px">Schritt 1 · Quelle</div>
+        <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap">
+          <h1 style="margin:0;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:{{ s1Fs }}px;line-height:1.05;letter-spacing:0.02em;text-transform:uppercase;color:var(--white);transition:font-size 420ms cubic-bezier(0.16,1,0.3,1)">Quell-MVR aus Vectorworks</h1>
+          <sc-if value="{{ s1Zu }}" hint-placeholder-val="{{ false }}">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-inverse-muted)">{{ s1Sum }}</span>
+          </sc-if>
+        </div>
+      </div>
+      <div style="{{ s1Wrap }}"><div style="flex:none;overflow:hidden"><div style="{{ s1Zoom }}"><div style="padding-top:20px;height:100%;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;gap:16px">
+      <sc-if value="{{ mvrLeer }}" hint-placeholder-val="{{ true }}">
+        <div onClick="{{ ladeDemo }}" style="min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed rgba(255,255,255,0.35);border-radius:var(--radius-lg);padding:32px 24px;text-align:center;cursor:pointer;background:rgba(8,19,31,0.35);transition:border-color 200ms,background 200ms" style-hover="border-color:var(--blue-300);background:rgba(8,19,31,0.55)">
+          <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="upload" style="width:40px;height:40px;color:var(--blue-300)"></i></span>
+          <div style="margin-top:14px;font-size:18px;font-weight:600;color:var(--white)">MVR-Datei hier ablegen</div>
+          <div style="margin-top:4px;font-size:14px;color:var(--text-inverse-muted)">oder klicken, um eine Datei zu wählen — die 3D-Szene bleibt unangetastet</div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ mvrGeladen }}" hint-placeholder-val="{{ false }}">
+        <div style="background:var(--surface-card-dark);border:1px solid var(--border-dark);border-radius:var(--radius-lg);box-shadow:var(--shadow-md);padding:20px 24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+          <div style="width:52px;height:52px;border-radius:var(--radius-md);background:rgba(92,174,221,0.16);display:flex;align-items:center;justify-content:center;flex:none">
+            <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="file-box" style="width:26px;height:26px;color:var(--blue-300)"></i></span>
+          </div>
+          <div style="min-width:200px">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:600;color:var(--white)">buehne_herbsttour_v4.mvr</div>
+            <div style="font-size:13px;color:var(--text-inverse-muted);margin-top:2px">Vectorworks 2026 · 84,2 MB · geändert heute 11:42</div>
+          </div>
+          <div style="display:flex;gap:28px;margin-left:auto;flex-wrap:wrap">
+            <div><div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:26px;color:var(--white)">204</div><div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-inverse-muted)">Fixtures</div></div>
+            <div><div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:26px;color:var(--white)">6</div><div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-inverse-muted)">Fixture-Typen</div></div>
+            <div><div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:26px;color:var(--white)">310</div><div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-inverse-muted)">3D-Meshes</div></div>
+            <div><div style="font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:26px;color:var(--white)">14</div><div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-inverse-muted)">Positionen</div></div>
+          </div>
+          <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Button" variant="onDarkOutline" size="sm" onClick="{{ entferneDatei }}" hint-size="auto,36px">Entfernen</x-import>
+        </div>
+        <div style="margin-top:12px;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-inverse-muted)">
+          <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="shield-check" style="width:15px;height:15px;color:var(--blue-300)"></i></span>
+          Geprüft: gehärtetes XML, ZIP-Limits eingehalten, keine übersprungenen Dateien
+        </div>
+      </sc-if>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;flex:none">
+        <div style="background:var(--surface-card-dark);border:1px solid var(--border-dark);border-radius:var(--radius-lg);padding:18px 20px">
+          <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-inverse-muted);margin-bottom:12px">Zuletzt verwendet</div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <div onClick="{{ ladeDemo }}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;margin:0 -10px;border-radius:var(--radius-sm);cursor:pointer" style-hover="background:rgba(92,174,221,0.10)">
+              <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="file-box" style="width:16px;height:16px;color:var(--blue-300);flex:none"></i></span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--white)">buehne_herbsttour_v4.mvr</span>
+              <span style="margin-left:auto;font-size:12px;color:var(--text-inverse-muted)">heute 11:42</span>
+            </div>
+            <div onClick="{{ ladeDemo }}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;margin:0 -10px;border-radius:var(--radius-sm);cursor:pointer" style-hover="background:rgba(92,174,221,0.10)">
+              <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="file-box" style="width:16px;height:16px;color:var(--blue-300);flex:none"></i></span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--white)">stadtfest_openair_v2.mvr</span>
+              <span style="margin-left:auto;font-size:12px;color:var(--text-inverse-muted)">gestern 17:05</span>
+            </div>
+            <div onClick="{{ ladeDemo }}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;margin:0 -10px;border-radius:var(--radius-sm);cursor:pointer" style-hover="background:rgba(92,174,221,0.10)">
+              <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="file-box" style="width:16px;height:16px;color:var(--blue-300);flex:none"></i></span>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--white)">gala_kongresshalle.mvr</span>
+              <span style="margin-left:auto;font-size:12px;color:var(--text-inverse-muted)">28.07.</span>
+            </div>
+          </div>
+        </div>
+        <div style="background:var(--surface-card-dark);border:1px solid var(--border-dark);border-radius:var(--radius-lg);padding:18px 20px">
+          <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-inverse-muted);margin-bottom:12px">Was mit deiner Datei passiert</div>
+          <div style="display:flex;flex-direction:column;gap:10px;font-size:13.5px;color:var(--blue-100)">
+            <div style="display:flex;align-items:center;gap:10px"><span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="box" style="width:16px;height:16px;color:var(--blue-300);flex:none"></i></span>3D-Szene &amp; Positionen bleiben unangetastet</div>
+            <div style="display:flex;align-items:center;gap:10px"><span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="link-2" style="width:16px;height:16px;color:var(--blue-300);flex:none"></i></span>GDTF, DMX-Modus und Patch werden korrekt gesetzt</div>
+            <div style="display:flex;align-items:center;gap:10px"><span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="eraser" style="width:16px;height:16px;color:var(--blue-300);flex:none"></i></span>Giftelemente &amp; verwaiste GDTFs werden entfernt — grandMA3-sicher</div>
+          </div>
+        </div>
+      </div>
+      <div style="height:12px"></div>
+      </div></div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 02 · Matching ══ -->
+<section data-screen-label="02 GDTF-Matching" style="background:var(--navy-900);flex:{{ s2Flex }};min-height:0;display:flex;flex-direction:column;transition:flex-grow 520ms cubic-bezier(0.16,1,0.3,1)">
+  <div style="max-width:1240px;margin:0 auto;padding:0 24px;display:grid;grid-template-columns:88px minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:0 20px;flex:1 1 auto;min-height:0;width:100%;box-sizing:border-box">
+    <div style="display:flex;flex-direction:column;align-items:center">
+      <div style="width:2px;height:32px;background:rgba(255,255,255,0.16)"></div>
+      <div style="{{ s2Node }}"><sc-if value="{{ s2Fertig }}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="check" style="width:20px;height:20px;color:var(--blue-300)"></i></span></sc-if><sc-if value="{{ s2Offen }}" hint-placeholder-val="{{ true }}">02</sc-if></div>
+      <div style="flex:1;width:2px;background:rgba(255,255,255,0.16);margin-top:8px"></div>
+    </div>
+    <div style="padding-top:32px;padding-bottom:28px;display:flex;flex-direction:column;min-height:0">
+      <div onClick="{{ geheZu2 }}" style="cursor:pointer">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--blue-300);margin-bottom:6px">Schritt 2 · Matching</div>
+        <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap">
+          <h2 style="margin:0;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:{{ s2Fs }}px;letter-spacing:0.02em;text-transform:uppercase;color:var(--white);transition:font-size 420ms cubic-bezier(0.16,1,0.3,1)">GDTF-Zuordnung pro Fixture-Typ</h2>
+          <sc-if value="{{ s2Auf }}" hint-placeholder-val="{{ false }}">
+            <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Badge" tone="onDark" hint-size="auto,22px">5 von 6 zugeordnet</x-import>
+          </sc-if>
+          <sc-if value="{{ s2Zu }}" hint-placeholder-val="{{ true }}">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-inverse-muted)">{{ s2Sum }}</span>
+          </sc-if>
+        </div>
+      </div>
+      <div style="{{ s2Wrap }}"><div style="flex:1 1 0%;min-height:0;overflow:hidden"><div style="{{ s2Zoom }}"><div style="padding-top:8px;height:100%;box-sizing:border-box;display:flex;flex-direction:column;min-height:0;overflow:hidden">
+      <p style="margin:0 0 12px;font-size:14px;color:var(--text-inverse-muted);max-width:720px">Jeder Typ braucht eine konkrete GDTF-Datei im richtigen DMX-Modus — Vorschläge kommen aus dem Score-Matching, du hast das letzte Wort.</p>
+      <div style="background:var(--surface-card-dark);border:1px solid var(--border-dark);border-radius:var(--radius-lg);padding:14px 20px;display:flex;align-items:center;gap:24px;flex-wrap:wrap;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="folder-open" style="width:17px;height:17px;color:var(--blue-300)"></i></span>
+          <div>
+            <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-inverse-muted)">Lokale Bibliothek</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--white)">D:\GDTF-Bibliothek <span style="color:var(--text-inverse-muted)">· 142 Dateien</span></div>
+          </div>
+        </div>
+        <span style="width:1px;height:32px;background:var(--border-dark)"></span>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="globe" style="width:17px;height:17px;color:var(--blue-300)"></i></span>
+          <div>
+            <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-inverse-muted)">GDTF Share</div>
+            <sc-if value="{{ shareAn }}" hint-placeholder-val="{{ true }}">
+              <div style="font-size:13px;color:var(--white);display:flex;align-items:center;gap:6px">
+                <span style="width:7px;height:7px;border-radius:999px;background:var(--status-success)"></span>
+                angemeldet als <b>jan.g</b> <a href="#" style="font-size:12px">abmelden</a>
+              </div>
+            </sc-if>
+            <sc-if value="{{ shareAus }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:13px;color:var(--text-inverse-muted);display:flex;align-items:center;gap:8px">
+                nicht angemeldet
+                <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Button" variant="onDarkOutline" size="sm" hint-size="auto,32px">Anmelden</x-import>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+        <span style="width:1px;height:32px;background:var(--border-dark)"></span>
+        <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Checkbox" label="Nach Position gruppieren" on-dark="{{ true }}" checked="{{ gruppieren }}" onChange="{{ toggleGruppieren }}" hint-size="auto,24px"></x-import>
+        <div style="margin-left:auto">
+          <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Button" variant="onDarkOutline" size="sm" hint-size="auto,32px">Overrides teilen</x-import>
+        </div>
+      </div>
+      <div style="background:var(--surface-card-dark);border:1px solid var(--border-dark);border-radius:var(--radius-lg);overflow:auto;flex:1 1 auto;min-height:120px"><div style="min-width:900px">
+        <div style="display:grid;grid-template-columns:minmax(190px,1.2fr) minmax(230px,1.6fr) 84px minmax(180px,1.1fr) 120px;gap:0 16px;align-items:center;padding:10px 20px;border-bottom:1px solid var(--border-dark);background:var(--navy-900);position:sticky;top:0;z-index:2;font-size:10.5px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-inverse-muted)">
+          <span>Fixture-Typ</span><span>GDTF-Datei</span><span>Score</span><span>DMX-Modus</span><span>Quelle</span>
+        </div>
+        <sc-for list="{{ typen }}" as="t" hint-placeholder-count="6">
+          <div style="display:grid;grid-template-columns:minmax(190px,1.2fr) minmax(230px,1.6fr) 84px minmax(180px,1.1fr) 120px;gap:0 16px;align-items:center;padding:10px 20px;border-bottom:1px solid var(--border-dark);background:{{ t.bg }}">
+            <div>
+              <div style="font-weight:600;font-size:14.5px;color:var(--white)">{{ t.name }}</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--text-inverse-muted);margin-top:2px">{{ t.meta }}</div>
+            </div>
+            <div>{{ t.gdtfZelle }}</div>
+            <div>{{ t.scoreBadge }}</div>
+            <div>{{ t.modusZelle }}</div>
+            <div>{{ t.quelleBadge }}</div>
+          </div>
+        </sc-for>
+      </div></div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex:none;font-size:13px;color:var(--text-inverse-muted)">
+        <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="info" style="width:15px;height:15px;color:var(--blue-300);flex:none"></i></span>
+        <span>Nicht zugeordnete Typen werden aus dem Export entfernt — das ist gewollt (Plugboxen &amp; Hilfsobjekte) und steht im Report.</span>
+        <span style="flex:1"></span>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:8px;flex:none">
+        <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Button" variant="primary" size="md" onClick="{{ geheZu3 }}" hint-size="auto,40px">Weiter: Export vorbereiten</x-import>
+      </div>
+      </div></div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ 03 · Export ══ -->
+<section data-screen-label="03 Export" style="background:var(--navy-950);flex:{{ s3Flex }};min-height:0;display:flex;flex-direction:column;transition:flex-grow 520ms cubic-bezier(0.16,1,0.3,1)">
+  <div style="max-width:1240px;margin:0 auto;padding:0 24px;display:grid;grid-template-columns:88px minmax(0,1fr);grid-template-rows:minmax(0,1fr);gap:0 20px;flex:1 1 auto;min-height:0;width:100%;box-sizing:border-box">
+    <div style="display:flex;flex-direction:column;align-items:center">
+      <div style="width:2px;height:32px;background:rgba(255,255,255,0.16)"></div>
+      <div style="{{ s3Node }}"><sc-if value="{{ s3Fertig }}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="check" style="width:20px;height:20px;color:var(--blue-300)"></i></span></sc-if><sc-if value="{{ s3Offen }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="arrow-down-to-line" style="width:20px;height:20px"></i></span></sc-if></div>
+    </div>
+    <div style="padding-top:32px;padding-bottom:40px;display:flex;flex-direction:column;min-height:0">
+      <div onClick="{{ geheZu3 }}" style="cursor:pointer">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--blue-300);margin-bottom:6px">Schritt 3 · Export</div>
+        <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap">
+          <h2 style="margin:0;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:{{ s3Fs }}px;letter-spacing:0.02em;text-transform:uppercase;color:var(--white);transition:font-size 420ms cubic-bezier(0.16,1,0.3,1)">Pult-fertiges MVR</h2>
+          <sc-if value="{{ s3Zu }}" hint-placeholder-val="{{ true }}">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-inverse-muted)">{{ s3Sum }}</span>
+          </sc-if>
+        </div>
+      </div>
+      <div style="{{ s3Wrap }}"><div style="flex:1 1 0%;min-height:0;overflow:hidden"><div style="{{ s3Zoom }}"><div style="padding-top:20px;height:100%;box-sizing:border-box;overflow-y:auto">
+      <sc-if value="{{ s3Normal }}" hint-placeholder-val="{{ true }}">
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start">
+        <div>
+          <div style="display:flex;gap:40px;flex-wrap:wrap;padding:4px 0 20px">
+            <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Stat" value="198/204" label="Fixtures gematcht" on-dark="{{ true }}" hint-size="auto,80px"></x-import>
+            <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Stat" value="12" label="GDTFs eingebettet" on-dark="{{ true }}" hint-size="auto,80px"></x-import>
+            <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Stat" value="310" label="Meshes übernommen" on-dark="{{ true }}" hint-size="auto,80px"></x-import>
+            <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Stat" value="14" label="Positionsgruppen" on-dark="{{ true }}" hint-size="auto,80px"></x-import>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;max-width:640px">
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid rgba(229,163,43,0.45);border-radius:var(--radius-md);background:rgba(229,163,43,0.10);font-size:13.5px;color:var(--blue-100)">
+              <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="triangle-alert" style="width:16px;height:16px;color:var(--amber-500);flex:none"></i></span>
+              <span><b style="color:var(--white)">12× Modus-Fallback:</b> GLP impression X5 nutzt den ersten Modus der GDTF — bitte in Schritt 2 prüfen.</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid rgba(214,69,69,0.45);border-radius:var(--radius-md);background:rgba(214,69,69,0.10);font-size:13.5px;color:var(--blue-100)">
+              <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="zap" style="width:16px;height:16px;color:var(--red-500);flex:none"></i></span>
+              <span><b style="color:var(--white)">Adress-Kollision:</b> Universum 4, Kanal 12–24 doppelt belegt (MAC Aura PXL 03 / impression X5 07).</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border-dark);border-radius:var(--radius-md);font-size:13.5px;color:var(--text-inverse-muted)">
+              <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="list-checks" style="width:16px;height:16px;color:var(--blue-300);flex:none"></i></span>
+              <span>6 Fixtures entfernt (Plugboxen) · 3 verwaiste GDTFs verworfen · CustomCommands &amp; Position gestrippt · alle Geometry3D-Referenzen vollständig</span>
+            </div>
+          </div>
+        </div>
+        <div style="background:var(--surface-card-dark);border:1px solid var(--border-dark);border-radius:var(--radius-lg);padding:20px;display:flex;flex-direction:column;gap:14px">
+          <div>
+            <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-inverse-muted);margin-bottom:4px">Ziel</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--white);word-break:break-all">D:\Export\buehne_herbsttour_v4_MA3.mvr</div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;font-size:13px;color:var(--text-inverse-muted)">
+            <span>Reproduzierbare UUIDs</span>
+            <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Badge" tone="onDark" hint-size="auto,22px">aktiv</x-import>
+          </div>
+          <div>{{ exportKnopf }}</div>
+          <div style="font-size:12.5px;color:var(--text-inverse-muted);text-align:center">Danach: vollständiger Report + Diff zum letzten Export</div>
+        </div>
+      </div>
+      </sc-if>
+      <sc-if value="{{ s3FertigAnsicht }}" hint-placeholder-val="{{ false }}">
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start">
+        <div>
+          <div style="display:flex;align-items:center;gap:14px;padding:16px 20px;border:1px solid rgba(47,158,110,0.5);border-radius:var(--radius-lg);background:rgba(47,158,110,0.10);margin-bottom:16px">
+            <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="circle-check" style="width:28px;height:28px;color:var(--green-500);flex:none"></i></span>
+            <div>
+              <div style="font-weight:600;font-size:16px;color:var(--white)">Export erfolgreich — bereit für grandMA3</div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--text-inverse-muted);margin-top:2px">D:\Export\buehne_herbsttour_v4_MA3.mvr · 84,6 MB · heute 11:58</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:40px;flex-wrap:wrap;padding:4px 0 16px">
+            <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Stat" value="198/204" label="Fixtures gematcht" on-dark="{{ true }}" hint-size="auto,80px"></x-import>
+            <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Stat" value="12" label="GDTFs eingebettet" on-dark="{{ true }}" hint-size="auto,80px"></x-import>
+            <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Stat" value="310" label="Meshes übernommen" on-dark="{{ true }}" hint-size="auto,80px"></x-import>
+            <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Stat" value="14" label="Positionsgruppen" on-dark="{{ true }}" hint-size="auto,80px"></x-import>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;max-width:640px">
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border-dark);border-radius:var(--radius-md);font-size:13.5px;color:var(--text-inverse-muted)">
+              <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="list-checks" style="width:16px;height:16px;color:var(--blue-300);flex:none"></i></span>
+              <span>6 Fixtures entfernt (Plugboxen) · 3 verwaiste GDTFs verworfen · CustomCommands &amp; Position gestrippt · alle Geometry3D-Referenzen vollständig</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid rgba(229,163,43,0.45);border-radius:var(--radius-md);background:rgba(229,163,43,0.10);font-size:13.5px;color:var(--blue-100)">
+              <span style="display:inline-flex;flex:none;line-height:0"><i data-lucide="triangle-alert" style="width:16px;height:16px;color:var(--amber-500);flex:none"></i></span>
+              <span><b style="color:var(--white)">2 Warnungen im Report vermerkt:</b> Modus-Fallback (impression X5) · Adress-Kollision Universum 4.</span>
+            </div>
+          </div>
+        </div>
+        <div style="background:var(--surface-card-dark);border:1px solid var(--border-dark);border-radius:var(--radius-lg);padding:20px;display:flex;flex-direction:column;gap:12px">
+          <div>
+            <div style="font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-inverse-muted);margin-bottom:4px">Ausgabe</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--white);word-break:break-all">D:\Export\buehne_herbsttour_v4_MA3.mvr</div>
+          </div>
+          <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Button" variant="primary" size="md" style="width:100%" hint-size="100%,40px">Ordner öffnen</x-import>
+          <x-import component-from-global-scope="GrohPADesignSystem_0055fb.Button" variant="onDarkOutline" size="md" style="width:100%" hint-size="100%,40px">Diff zum letzten Export</x-import>
+          <a href="#" onClick="{{ neuerExport }}" style="font-size:13px;text-align:center;margin-top:2px">Neuen Export starten</a>
+        </div>
+      </div>
+      </sc-if>
+      </div></div></div></div>
+    </div>
+  </div>
+</section>
+
+<footer style="margin-top:auto;background:var(--navy-950);border-top:1px solid var(--border-dark);padding:14px 28px;display:flex;gap:16px;align-items:center;font-size:12px;color:var(--text-inverse-muted)">
+  <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:0.06em;color:var(--white)">GROH·PA</span>
+  <span>Veranstaltungstechnik · Buchholz i.d.N.</span>
+  <span style="flex:1"></span>
+  <span style="font-family:'JetBrains Mono',monospace">grandMA3-geprüfte Pipeline</span>
+</footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;nurProbleme&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Matching&quot;},&quot;shareAngemeldet&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Matching&quot;}}">
+class Component extends DCLogic {
+  state = { mvr: false, aktiv: 1, gruppieren: true, exportiert: false };
+  componentDidMount() { this._t = [300, 900, 2200].map(ms => setTimeout(() => window.lucide && lucide.createIcons(), ms)); }
+  componentWillUnmount() { (this._t || []).forEach(clearTimeout); clearTimeout(this._adv); }
+  componentDidUpdate() { window.lucide && requestAnimationFrame(() => lucide.createIcons()); }
+  renderVals() {
+    const p = this.props, R = React.createElement;
+    const DS = window.GrohPADesignSystem_0055fb || {};
+    const ease = 'cubic-bezier(0.16,1,0.3,1)';
+    const aktiv = this.state.aktiv;
+    const wrap = (open) => ({ display: 'flex', flexDirection: 'column', flex: '1 1 0%', minHeight: 0, overflow: 'hidden', maxHeight: open ? 900 : 0, transition: `max-height 520ms ${ease}` });
+    const zoom = (open) => ({ transform: open ? 'scale(1) translateY(0)' : 'scale(0.96) translateY(-14px)', opacity: open ? 1 : 0, transformOrigin: 'top left', transition: `transform 520ms ${ease}, opacity 360ms ease`, height: '100%', minHeight: 0 });
+    const node = (open, done) => ({ width: 44, height: 44, borderRadius: 999, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Barlow Condensed',sans-serif", fontWeight: 700, fontSize: 19, color: '#fff', background: open ? 'var(--blue-600)' : 'var(--navy-700)', boxShadow: open ? 'var(--shadow-brand)' : 'none', border: open ? 'none' : (done ? '1px solid var(--blue-400)' : '1px solid rgba(255,255,255,0.18)'), transition: 'background 320ms, box-shadow 320ms' });
+    const selStyle = { minWidth: 0, background: 'var(--navy-900)', color: 'var(--white)', borderColor: 'rgba(255,255,255,0.25)' };
+    const sel = (opts) => DS.Select ? R(DS.Select, { options: opts, style: selStyle }) : null;
+    const badge = (tone, txt) => DS.Badge ? R(DS.Badge, { tone }, txt) : txt;
+    const score = (v) => badge(v >= 0.9 ? 'success' : v >= 0.3 ? 'warning' : 'danger', v.toFixed(2));
+    const btn = (label) => DS.Button ? R(DS.Button, { variant: 'onDarkOutline', size: 'sm' }, label) : label;
+    const nurProbleme = p.nurProbleme ?? false;
+    const f1 = this.state.mvr, f2 = this.state.mvr && (aktiv === 3 || this.state.exportiert), f3 = this.state.exportiert;
+    const alle = [
+      { name: 'Robe MegaPointe', meta: '24× · Traverse 1–3', ok: true, bg: 'transparent',
+        gdtfZelle: sel(['Robe@MegaPointe@2023.gdtf', 'Robe@MegaPointe@2021.gdtf']), scoreBadge: score(0.95),
+        modusZelle: sel(['Mode 1 Standard (39ch)', 'Mode 2 Basic (27ch)']), quelleBadge: badge('onDark', 'Bibliothek') },
+      { name: 'Martin MAC Aura PXL', meta: '16× · Traverse 2, Boden', ok: true, bg: 'transparent',
+        gdtfZelle: sel(['Martin@MAC_Aura_PXL@1.1.gdtf']), scoreBadge: score(1.0),
+        modusZelle: sel(['P1 Basic (14ch)', 'P2 Extended (23ch)']), quelleBadge: badge('onDark', 'Bibliothek') },
+      { name: 'GLP impression X5', meta: '12× · FOH', ok: false, bg: 'rgba(92,174,221,0.08)',
+        gdtfZelle: sel(['GLP@impression_X5@rev2.gdtf', 'GLP@impression_X5_Bar@rev1.gdtf']), scoreBadge: score(0.55),
+        modusZelle: R('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+          sel(['Mode 1 (39ch)', 'Mode 2 (52ch)']),
+          R('span', { title: 'Fallback: erster Modus der GDTF', style: { color: 'var(--amber-500)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', flex: 'none' } }, 'Fallback')),
+        quelleBadge: badge('brand', 'Share') },
+      { name: 'Showtec Sunstrip Active', meta: '8× · Boden', ok: true, bg: 'transparent',
+        gdtfZelle: sel(['Showtec@Sunstrip_Active@rev1.gdtf']), scoreBadge: score(0.87),
+        modusZelle: sel(['10 Channel', '6 Channel']), quelleBadge: badge('onDark', 'Bibliothek') },
+      { name: 'Cameo Zenit W600', meta: '4× · Backdrop', ok: false, bg: 'rgba(92,174,221,0.08)',
+        gdtfZelle: R('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+          R('span', { style: { fontSize: 13, color: 'var(--text-inverse-muted)' } }, 'kein Treffer in der Bibliothek'),
+          btn('Im Share suchen')),
+        scoreBadge: score(0.0), modusZelle: R('span', { style: { color: 'var(--text-inverse-muted)', fontSize: 13 } }, '—'),
+        quelleBadge: badge('danger', 'offen') },
+      { name: 'Plugbox 6-fach', meta: '6× · Boden · kein Patch', ok: false, bg: 'transparent',
+        gdtfZelle: R('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+          R('span', { style: { fontSize: 13, color: 'var(--text-inverse-muted)', textDecoration: 'line-through' } }, 'wird entfernt'),
+          btn('Doch zuordnen')),
+        scoreBadge: badge('onDark', '–'), modusZelle: R('span', { style: { fontSize: 12, color: 'var(--text-inverse-muted)', fontFamily: "'JetBrains Mono',monospace" } }, 'Hilfsobjekt'),
+        quelleBadge: badge('onDark', 'entfernt') },
+    ];
+    return {
+      typen: nurProbleme ? alle.filter(t => !t.ok) : alle,
+      mvrGeladen: this.state.mvr, mvrLeer: !this.state.mvr,
+      ladeDemo: () => { this.setState({ mvr: true }); this._adv = setTimeout(() => this.setState({ aktiv: 2 }), 750); },
+      entferneDatei: (e) => { e && e.stopPropagation && e.stopPropagation(); clearTimeout(this._adv); this.setState({ mvr: false, aktiv: 1 }); },
+      geheZu1: () => this.setState({ aktiv: 1 }),
+      geheZu2: () => this.setState({ aktiv: 2 }),
+      geheZu3: () => this.setState({ aktiv: 3 }),
+      s1Wrap: Object.assign(wrap(aktiv === 1), { flex: '0 0 auto' }), s2Wrap: wrap(aktiv === 2), s3Wrap: wrap(aktiv === 3),
+      s1Zoom: zoom(aktiv === 1), s2Zoom: zoom(aktiv === 2), s3Zoom: zoom(aktiv === 3),
+      s1Node: node(aktiv === 1, f1), s2Node: node(aktiv === 2, f2), s3Node: node(aktiv === 3, f3),
+      s1Fertig: f1 && aktiv !== 1, s1Offen: !(f1 && aktiv !== 1),
+      s2Fertig: f2 && aktiv !== 2, s2Offen: !(f2 && aktiv !== 2),
+      s3Fertig: f3, s3Offen: !f3,
+      s3Normal: !this.state.exportiert, s3FertigAnsicht: this.state.exportiert,
+      exportKnopf: DS.Button ? R(DS.Button, {
+        variant: 'primary', size: 'lg',
+        style: { width: '100%', background: 'var(--amber-500)', borderColor: 'var(--amber-500)', color: 'var(--navy-950)' },
+        onClick: () => this.setState({ exportiert: true, aktiv: 3 })
+      }, 'Mit 2 Warnungen exportieren') : null,
+      neuerExport: (e) => { e && e.preventDefault && e.preventDefault(); this.setState({ exportiert: false }); },
+      s1Flex: aktiv === 1 ? '0 1 auto' : '0 0 auto', s2Flex: aktiv === 2 ? '1 1 auto' : '0 0 auto', s3Flex: aktiv === 3 ? '1 1 auto' : '0 0 auto',
+      s1Fs: aktiv === 1 ? 40 : 21, s2Fs: aktiv === 2 ? 32 : 21, s3Fs: aktiv === 3 ? 32 : 21,
+      s1Auf: aktiv === 1, s1Zu: aktiv !== 1, s2Auf: aktiv === 2, s2Zu: aktiv !== 2, s3Auf: aktiv === 3, s3Zu: aktiv !== 3,
+      s1Sum: this.state.mvr ? 'buehne_herbsttour_v4.mvr · 204 Fixtures · 310 Meshes' : 'noch keine Datei geladen',
+      s2Sum: this.state.mvr ? '5 von 6 Typen zugeordnet · 2 offene Punkte' : 'wartet auf Quell-MVR',
+      s3Sum: this.state.exportiert ? 'exportiert · heute 11:58' : (this.state.mvr ? 'bereit · 2 Warnungen' : 'wartet auf Matching'),
+      shareAn: p.shareAngemeldet ?? true, shareAus: !(p.shareAngemeldet ?? true),
+      gruppieren: this.state.gruppieren,
+      toggleGruppieren: () => this.setState(s => ({ gruppieren: !s.gruppieren })),
+    };
+  }
+}
+</script>
+</body>
+</html>

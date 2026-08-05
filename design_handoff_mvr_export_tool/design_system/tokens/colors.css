@@ -1,0 +1,74 @@
+/* Colors — Groh-P.A. "Blau" palette, sampled from the brand background.
+   Base scales first, then semantic aliases. */
+:root {
+  /* Navy — brand dark, sampled from Hintergrund.jpg */
+  --navy-950: #08131f;
+  --navy-900: #0c1d2f;
+  --navy-800: #15273f;
+  --navy-700: #1b3a5c;
+  --navy-600: #204e80;
+
+  /* Blue — Groh "Blau", the signature brand hue */
+  --blue-800: #0f4a80;
+  --blue-700: #145a96;
+  --blue-600: #1e7cc4;
+  --blue-500: #2e8fd4; /* primary */
+  --blue-400: #4fa3d6;
+  --blue-300: #5caedd; /* bright accent (peak of the background gradient) */
+  --blue-200: #8cc8ea;
+  --blue-100: #c9e4f5;
+  --blue-50:  #eaf4fb;
+
+  /* Neutral grays */
+  --white:    #ffffff;
+  --gray-50:  #f4f7fa;
+  --gray-100: #e7edf3;
+  --gray-200: #d2dce6;
+  --gray-300: #aebecd;
+  --gray-400: #7e90a1;
+  --gray-500: #566575;
+  --gray-600: #3d4a58;
+  --gray-700: #2e3b48;
+  --gray-900: #141b23;
+
+  /* Semantic status */
+  --green-500:  #2f9e6e;
+  --amber-500:  #e5a32b;
+  --red-500:    #d64545;
+
+  /* ---- Semantic aliases ---- */
+  --brand-primary:      var(--blue-600);
+  --brand-primary-hover:var(--blue-700);
+  --brand-primary-press:var(--blue-800);
+  --brand-accent:       var(--blue-300);
+  --brand-dark:         var(--navy-900);
+
+  --surface-page:       var(--navy-900);
+  --surface-page-alt:   var(--navy-800);
+  --surface-card:       var(--white);
+  --surface-card-dark:  var(--navy-800);
+  --surface-sunken:     var(--gray-50);
+  --surface-overlay:    rgba(8, 19, 31, 0.72);
+
+  --text-heading:  var(--navy-900);
+  --text-body:     var(--gray-700);
+  --text-muted:    var(--gray-500);
+  --text-inverse:  var(--white);
+  --text-inverse-muted: var(--blue-100);
+  --text-brand:    var(--blue-600);
+  --text-link:     var(--blue-600);
+  --text-link-hover: var(--blue-700);
+
+  --border-subtle:  var(--gray-200);
+  --border-default: var(--gray-300);
+  --border-strong:  var(--gray-400);
+  --border-dark:    rgba(255, 255, 255, 0.12);
+  --border-brand:   var(--blue-500);
+
+  --focus-ring: var(--blue-400);
+
+  --status-success: var(--green-500);
+  --status-warning: var(--amber-500);
+  --status-danger:  var(--red-500);
+  --status-info:    var(--blue-500);
+}
