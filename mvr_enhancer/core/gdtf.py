@@ -223,14 +223,22 @@ def _cache_path(library_dir: str, fixture_name: str) -> str:
     return os.path.join(library_dir, f"{safe}.json")
 
 
-def _save_cache(library_dir: str, fixture: GdtfFixture) -> None:
-    """Speichert geparste Fixture-Daten als JSON-Cache (atomar)."""
+def _save_cache(library_dir: str, fixture: GdtfFixture, source_file: str = "") -> None:
+    """Speichert geparste Fixture-Daten als JSON-Cache (atomar).
+
+    ``source_file`` ist, falls bekannt, der Dateiname der urspruenglichen
+    ``.gdtf``-Datei im Bibliotheksordner (z.B. bei Import oder Ordner-Scan).
+    Damit kann ``load_gdtf_library`` beim naechsten Scan erkennen, dass diese
+    Rohdatei bereits ueber ihren JSON-Cache abgedeckt ist, und muss sie nicht
+    erneut mit ``parse_gdtf`` einlesen.
+    """
     path = _cache_path(library_dir, fixture.name)
     data = {
         "manufacturer": fixture.manufacturer,
         "name": fixture.name,
         "revision": fixture.revision,
         "modes": [{"name": m.name, "channel_count": m.channel_count} for m in fixture.modes],
+        "source_file": source_file,
     }
     import tempfile
     fd, tmp_path = tempfile.mkstemp(dir=library_dir, suffix=".tmp")
@@ -246,17 +254,23 @@ def _save_cache(library_dir: str, fixture: GdtfFixture) -> None:
         raise
 
 
-def _load_cache(path: str) -> GdtfFixture | None:
-    """Laedt eine gecachte Fixture-Definition."""
+def _load_cache(path: str) -> tuple[GdtfFixture, str] | None:
+    """Laedt eine gecachte Fixture-Definition.
+
+    Gibt ``(fixture, source_file)`` zurueck. ``source_file`` ist der
+    Dateiname der zugehoerigen rohen ``.gdtf``-Datei (leerer String falls
+    unbekannt, z.B. bei aelteren Caches ohne dieses Feld).
+    """
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-        return GdtfFixture(
+        fixture = GdtfFixture(
             manufacturer=data.get("manufacturer", ""),
             name=data.get("name", ""),
             revision=data.get("revision", ""),
             modes=[GdtfMode(**m) for m in data.get("modes", [])],
         )
+        return fixture, data.get("source_file", "")
     except (OSError, json.JSONDecodeError, KeyError, TypeError) as e:
         log.warning("GDTF-Cache konnte nicht geladen werden: %s", e)
         return None
@@ -275,7 +289,7 @@ def import_gdtf(file_path: str, library_dir: str) -> GdtfFixture | None:
     if os.path.abspath(file_path) != os.path.abspath(dest):
         shutil.copy2(file_path, dest)
 
-    _save_cache(library_dir, fixture)
+    _save_cache(library_dir, fixture, source_file=os.path.basename(dest))
     invalidate_gdtf_cache()
     log.info("GDTF importiert: %s (%d Modi)", fixture.name, len(fixture.modes))
     return fixture
@@ -297,8 +311,11 @@ def load_gdtf_library(library_dir: str, force_reload: bool = False) -> dict[str,
     ohne zugehoerigen JSON-Cache eingelesen (z.B. manuell in den Ordner
     kopierte Dateien): Sie werden mit ``parse_gdtf`` geparst, dem Ergebnis-
     Dict hinzugefuegt (sofern der Fixture-Name noch nicht vorhanden ist)
-    und via ``_save_cache`` als JSON gecacht, damit Folge-Scans schnell
-    bleiben. Defekte Dateien werden geloggt und uebersprungen.
+    und via ``_save_cache`` als JSON gecacht (inkl. ``source_file``), damit
+    Folge-Scans die Rohdatei als bereits abgedeckt erkennen und nicht erneut
+    parsen. Defekte Dateien werden geloggt und uebersprungen; ein
+    Cache-Schreibfehler (z.B. schreibgeschuetzter Ordner) wird ebenfalls nur
+    geloggt — das Laden selbst darf dadurch nicht fehlschlagen.
     """
     global _lib_cache, _lib_cache_dir, _lib_cache_mtime
 
@@ -322,18 +339,26 @@ def load_gdtf_library(library_dir: str, force_reload: bool = False) -> dict[str,
             return _lib_cache
 
         library: dict[str, GdtfFixture] = {}
+        covered_filenames: set[str] = set()
         for filename in os.listdir(library_dir):
             if not filename.endswith(".json"):
                 continue
             path = os.path.join(library_dir, filename)
-            fixture = _load_cache(path)
-            if fixture:
+            loaded = _load_cache(path)
+            if loaded is not None:
+                fixture, source_file = loaded
                 library[fixture.name] = fixture
+                if source_file:
+                    covered_filenames.add(source_file)
 
         # Rohe .gdtf-Dateien ohne JSON-Cache mitscannen (z.B. manuell
         # in den Ordner kopierte Dateien) und fuer Folge-Scans cachen.
+        # Dateien, die bereits ueber einen JSON-Cache abgedeckt sind
+        # (source_file-Feld), werden uebersprungen statt erneut geparst.
         for filename in os.listdir(library_dir):
             if not filename.lower().endswith(".gdtf"):
+                continue
+            if filename in covered_filenames:
                 continue
             path = os.path.join(library_dir, filename)
             fixture = parse_gdtf(path)
@@ -345,7 +370,21 @@ def load_gdtf_library(library_dir: str, force_reload: bool = False) -> dict[str,
             if fixture.name in library:
                 continue
             library[fixture.name] = fixture
-            _save_cache(library_dir, fixture)
+            try:
+                _save_cache(library_dir, fixture, source_file=filename)
+            except OSError as e:
+                log.warning(
+                    "GDTF-Cache konnte nicht geschrieben werden: %s — %s", path, e,
+                )
+
+        try:
+            # Nach dem Schreiben neuer Caches erneut stat()en: das Anlegen
+            # von JSON-Dateien aendert selbst die Verzeichnis-mtime, sonst
+            # wuerde der naechste Aufruf den frisch gefuellten Cache faelsch-
+            # lich fuer veraltet halten und sofort neu scannen.
+            mtime = os.path.getmtime(library_dir)
+        except OSError:
+            pass
 
         _lib_cache = library
         _lib_cache_dir = library_dir

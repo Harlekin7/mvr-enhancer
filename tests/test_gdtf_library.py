@@ -1,5 +1,6 @@
 """Tests fuer die lokale GDTF-Bibliothek (JSON-Cache + Ordner-Scan, Vorschlaege)."""
 
+from mvr_enhancer.core import gdtf as gdtf_module
 from mvr_enhancer.core.gdtf import find_all_gdtf_suggestions, load_gdtf_library
 from tests.builders import build_gdtf
 
@@ -101,3 +102,98 @@ def test_suggestions_param_topn(tmp_path):
 
     assert len(suggestions["GLP X5"]) == 1
     assert suggestions["GLP X5"][0][0].name == "GLP X5"
+
+
+def test_reload_without_changes_hits_memory_cache(tmp_path, monkeypatch):
+    """An unchanged directory must be a pure in-memory cache hit on reload.
+
+    Regression test: the folder-scan used to capture the directory mtime
+    *before* writing new JSON caches, so the stored mtime went stale
+    immediately and every subsequent (non-forced) call re-scanned the whole
+    directory. Fixed by re-stat()ing after the write loop.
+    """
+    build_gdtf(
+        tmp_path / "Testlight@BeamOne@rev1.gdtf", manufacturer="Testlight", name="Beam One",
+    )
+    build_gdtf(
+        tmp_path / "Testlight@BeamTwo@rev1.gdtf", manufacturer="Testlight", name="Beam Two",
+    )
+
+    library_dir = str(tmp_path)
+    first = load_gdtf_library(library_dir, force_reload=True)
+    assert len(first) == 2
+
+    calls = {"count": 0}
+    original_parse_gdtf = gdtf_module.parse_gdtf
+
+    def counting_parse_gdtf(path):
+        calls["count"] += 1
+        return original_parse_gdtf(path)
+
+    monkeypatch.setattr(gdtf_module, "parse_gdtf", counting_parse_gdtf)
+
+    second = load_gdtf_library(library_dir)  # no force_reload -> should hit the mtime cache
+
+    assert second is first
+    assert calls["count"] == 0
+
+
+def test_reload_skips_already_covered_raw_files(tmp_path, monkeypatch):
+    """A forced reload must not re-parse .gdtf files already covered by a JSON cache.
+
+    Regression test: the folder-scan called parse_gdtf() unconditionally for
+    every raw .gdtf file before checking whether it was already represented
+    in the library, so every reload re-parsed every raw file. Fixed by
+    recording the covering JSON cache's ``source_file`` and skipping raw
+    files already covered before parsing them.
+    """
+    build_gdtf(
+        tmp_path / "Testlight@BeamOne@rev1.gdtf", manufacturer="Testlight", name="Beam One",
+    )
+    build_gdtf(
+        tmp_path / "Testlight@BeamTwo@rev1.gdtf", manufacturer="Testlight", name="Beam Two",
+    )
+
+    library_dir = str(tmp_path)
+    first = load_gdtf_library(library_dir, force_reload=True)
+    assert len(first) == 2
+
+    calls = {"count": 0}
+    original_parse_gdtf = gdtf_module.parse_gdtf
+
+    def counting_parse_gdtf(path):
+        calls["count"] += 1
+        return original_parse_gdtf(path)
+
+    monkeypatch.setattr(gdtf_module, "parse_gdtf", counting_parse_gdtf)
+
+    # force_reload=True bypasses the mtime shortcut, exercising the raw-scan
+    # loop directly: it must still skip already-covered files.
+    second = load_gdtf_library(library_dir, force_reload=True)
+
+    assert len(second) == 2
+    assert calls["count"] == 0
+
+
+def test_load_survives_cache_write_failure(tmp_path, monkeypatch):
+    """A cache-write failure (e.g. read-only/full library dir) must not raise.
+
+    load_gdtf_library is a read-oriented call; a failing _save_cache() call
+    during the folder-scan's cache-write step must be logged and swallowed,
+    not propagate out of an otherwise successful load.
+    """
+    build_gdtf(
+        tmp_path / "Testlight@BeamOne@rev1.gdtf", manufacturer="Testlight", name="Beam One",
+    )
+
+    def failing_save_cache(library_dir, fixture, source_file=""):
+        raise OSError("read-only filesystem (simulated)")
+
+    monkeypatch.setattr(gdtf_module, "_save_cache", failing_save_cache)
+
+    library = load_gdtf_library(str(tmp_path), force_reload=True)
+
+    assert len(library) == 1
+    assert "Beam One" in library
+    # No JSON cache was written because _save_cache was made to fail.
+    assert list(tmp_path.glob("*.json")) == []
