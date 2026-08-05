@@ -9,6 +9,7 @@ Layer-/GroupObject-UUIDs nicht eigenstaendig abbildet.
 """
 
 import io
+import re
 import uuid
 import zipfile
 from xml.etree import ElementTree as ET
@@ -609,6 +610,61 @@ def test_percent_encoded_gdtf_reference_cleaned_and_kept(tmp_path):
 
     fixture_el = xml_root.find(".//Fixture")
     assert fixture_el.find("GDTFSpec").text == "Robe@Robin@r1.gdtf"
+
+
+#: An MVR ``<Matrix>`` is 4 groups of 3 floats — ``{u}{v}{w}{o}``: the three
+#: basis vectors followed by the translation/origin (DIN SPEC 15801 / MVR 1.5+).
+#: Asserted as a SHAPE, deliberately not compared against any constant, so a
+#: wrong-shaped constant on either side can't make the test pass.
+_MVR_MATRIX_RE = re.compile(
+    r"^(?:\{\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*\}){4}$"
+)
+
+
+def test_emitted_matrix_shape_is_four_groups_of_three(tmp_path):
+    """Every ``<Matrix>`` the enricher emits must have MVR's 4×3 shape."""
+    library_dir = tmp_path / "library"
+    build_gdtf(
+        library_dir / "Testlight@Beam One@rev1.gdtf",
+        manufacturer="Testlight",
+        name="Beam One",
+    )
+    gdtf_library = load_gdtf_library(str(library_dir), force_reload=True)
+
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[
+            {"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111",
+             "address": 1, "position_uuid": "aaaaaaaa-0000-0000-0000-000000000000"},
+        ],
+        aux_positions={"aaaaaaaa-0000-0000-0000-000000000000": "Truss 1"},
+        embedded={"mesh1.glb": b"mesh bytes"},
+    )
+
+    scene = read_mvr(str(mvr_path))
+    types = aggregate_fixture_types(scene)
+    key = types[0].key
+    assignments = {key: Assignment(gdtf_name="Beam One", mode_name="Mode 1")}
+
+    result = enrich_mvr(scene, types, assignments, str(library_dir), gdtf_library)
+
+    with zipfile.ZipFile(io.BytesIO(result.data)) as zf:
+        root = ET.fromstring(zf.read("GeneralSceneDescription.xml"))
+
+    # Layer + at least one GroupObject (position group) carry a Matrix.
+    emitted = [
+        el.text or ""
+        for el in root.iter("Matrix")
+        if el.text
+    ]
+    assert emitted, "expected the export to emit at least one <Matrix>"
+    for text in emitted:
+        assert _MVR_MATRIX_RE.match(text.strip()), text
+
+
+def test_builder_identity_matrix_has_mvr_shape():
+    """The test-fixture builder must not hand the parsers a 4×4 matrix."""
+    assert _MVR_MATRIX_RE.match(_FIXTURE_IDENTITY_MATRIX)
 
 
 def test_export_never_writes_traversal_entry_names(tmp_path):

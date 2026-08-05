@@ -11,12 +11,14 @@ import zipfile
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-# Identity matrix in the GDTF/MVR "4 groups of 4 floats" text format.
+# Identity matrix in the MVR ``<Matrix>`` text format: FOUR groups of THREE
+# floats — ``{u}{v}{w}{o}``, i.e. the three basis vectors u/v/w followed by the
+# translation o (DIN SPEC 15801 / MVR 1.5+). Not a 4×4 homogeneous matrix.
 _IDENTITY_MATRIX = (
-    "{1.000000,0.000000,0.000000,0.000000}"
-    "{0.000000,1.000000,0.000000,0.000000}"
-    "{0.000000,0.000000,1.000000,0.000000}"
-    "{0.000000,0.000000,0.000000,1.000000}"
+    "{1.000000,0.000000,0.000000}"
+    "{0.000000,1.000000,0.000000}"
+    "{0.000000,0.000000,1.000000}"
+    "{0.000000,0.000000,0.000000}"
 )
 
 

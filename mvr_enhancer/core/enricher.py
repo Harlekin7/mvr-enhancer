@@ -52,9 +52,17 @@ log = logging.getLogger(__name__)
 
 _NS = uuid.NAMESPACE_DNS
 
-# Identity-Matrix im MVR-Textformat (3 Zeilen: Rotation/Translation, keine
-# vierte {0,0,0,1}-Zeile — analog zur Portierungsquelle).
-_IDENTITY_MATRIX = "{1,0,0,0}{0,1,0,0}{0,0,1,0}"
+# Identity-Matrix im MVR-Textformat. Ein MVR-``<Matrix>`` besteht aus VIER
+# Gruppen mit je DREI Werten — ``{u}{v}{w}{o}``: die drei Basisvektoren u/v/w
+# plus die Translation o (DIN SPEC 15801 / MVR 1.5+). Die Portierungsquelle
+# schrieb hier 3 Gruppen mit je 4 Werten (transponiert und um die Translation
+# amputiert), was grandMA3 als ungueltige Matrix liest.
+_IDENTITY_MATRIX = (
+    "{1.000000,0.000000,0.000000}"
+    "{0.000000,1.000000,0.000000}"
+    "{0.000000,0.000000,1.000000}"
+    "{0.000000,0.000000,0.000000}"
+)
 
 _LAYER_NAME = "MVR Enhancer Export"
 
