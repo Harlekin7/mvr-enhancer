@@ -9,7 +9,7 @@ Produces (all under ``mvr_enhancer/ui/``):
   by the design system, downloaded once from Google Fonts and vendored so the
   app works fully offline.
 - ``assets/icons.js`` -- the Lucide icon set used by the UI, inlined as a
-  ``const ICONS = {...}`` map of raw SVG markup.
+  ``window.ICONS = {...}`` map of raw SVG markup.
 - ``assets/hintergrund.jpg`` -- the brand background image, copied from the
   design handoff.
 
@@ -168,7 +168,7 @@ def build_icons(force: bool) -> None:
         raw = fetch(f"{LUCIDE_BASE}/{name}.svg").decode("utf-8")
         entries.append((name, normalize_svg(raw)))
 
-    lines = ["const ICONS = {"]
+    lines = ["window.ICONS = {"]
     for name, svg in entries:
         escaped = svg.replace("\\", "\\\\").replace('"', '\\"')
         lines.append(f'  "{name}": "{escaped}",')
