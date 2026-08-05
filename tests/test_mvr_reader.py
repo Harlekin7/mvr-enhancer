@@ -173,3 +173,51 @@ def test_percent_encoded_traversal_entries_skipped(tmp_path):
     scene = read_mvr(str(path))
 
     assert scene.embedded_files == {"good.gdtf": b"good-content"}
+
+
+def test_layers_provenance_collects_per_layer(tmp_path):
+    mvr = build_mvr(
+        tmp_path / "prov.mvr",
+        fixtures=[
+            {"name": "Spot 1", "layer": "Rig A", "address": 1},
+            {"name": "Spot 2", "layer": "Rig B", "address": 17},
+        ],
+        scene_objects=[
+            {"name": "Truss A", "layer": "Rig A"},
+            {"name": "Deko B1", "layer": "Rig B"},
+            {"name": "Deko B2", "layer": "Rig B"},
+        ],
+        layer_matrix={"Rig A": "{1,0,0}{0,1,0}{0,0,1}{5,5,0}"},
+    )
+    scene = read_mvr(str(mvr))
+
+    assert [layer.name for layer in scene.layers] == ["Rig A", "Rig B"]
+    assert all(layer.uuid for layer in scene.layers)
+    assert scene.layers[0].matrix_text == "{1,0,0}{0,1,0}{0,0,1}{5,5,0}"
+    assert scene.layers[1].matrix_text is None
+    assert [el.get("name") for el in scene.layers[0].non_fixture_elements] == ["Truss A"]
+    assert [el.get("name") for el in scene.layers[1].non_fixture_elements] == ["Deko B1", "Deko B2"]
+
+
+def test_layers_provenance_shares_element_objects_with_flat_list(tmp_path):
+    mvr = build_mvr(
+        tmp_path / "identity.mvr",
+        fixtures=[{"name": "Spot 1", "layer": "Rig A", "address": 1}],
+        scene_objects=[
+            {"name": "Truss A", "layer": "Rig A"},
+            {"name": "Deko B", "layer": "Rig B"},
+        ],
+    )
+    scene = read_mvr(str(mvr))
+
+    from_layers = [el for layer in scene.layers for el in layer.non_fixture_elements]
+    assert len(from_layers) == len(scene.non_fixture_elements) == 2
+    for a, b in zip(from_layers, scene.non_fixture_elements):
+        assert a is b
+
+
+def test_layers_default_empty_on_invalid_mvr(tmp_path):
+    bad = tmp_path / "bad.mvr"
+    bad.write_bytes(b"not a zip")
+    scene = read_mvr(str(bad))
+    assert scene.layers == []
