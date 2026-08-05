@@ -73,6 +73,13 @@ _OPEN_DIALOG = _dialog_const("OPEN", "OPEN_DIALOG")
 _SAVE_DIALOG = _dialog_const("SAVE", "SAVE_DIALOG")
 _FOLDER_DIALOG = _dialog_const("FOLDER", "FOLDER_DIALOG")
 
+# pywebview's parse_file_type() validates the filter description against
+# ``^([\w ]+)\(...`` — word chars and spaces only. A hyphen (e.g. the
+# previous "MVR-Dateien (*.mvr)") makes it raise ValueError on every dialog
+# call. Defined once so the app and its regression test share one source of
+# truth (see tests/test_api.py).
+MVR_FILE_TYPES = ("MVR Dateien (*.mvr)",)
+
 
 def _resolve_initial_mode(existing_mode: str, modes: list[dict]) -> tuple[str, bool]:
     """Bestimmt den initialen GDTF-Modus per Substring-Abgleich, sonst ``modes[0]``.
@@ -373,7 +380,7 @@ class Api:
             if self._window is None:
                 return {"ok": False, "error": "Kein Fenster verfuegbar. Bitte starte die App neu."}
             paths = self._window.create_file_dialog(
-                _OPEN_DIALOG, file_types=("MVR-Dateien (*.mvr)",)
+                _OPEN_DIALOG, file_types=MVR_FILE_TYPES
             )
             if not paths:
                 return {"ok": True, "data": {"cancelled": True}}
@@ -841,7 +848,7 @@ class Api:
                 _SAVE_DIALOG,
                 directory=directory,
                 save_filename=filename,
-                file_types=("MVR-Dateien (*.mvr)",),
+                file_types=MVR_FILE_TYPES,
             )
             if not result:
                 return {"ok": True, "data": {"cancelled": True}}

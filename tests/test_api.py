@@ -898,3 +898,26 @@ def test_run_export_cancelled_dialog_emits_no_progress(tmp_path):
     api.run_export("")
 
     assert [e for e in api.events if e["type"] == "progress"] == []
+
+
+# ──── test_mvr_file_types_are_valid_pywebview_filters ────
+
+
+def test_mvr_file_types_are_valid_pywebview_filters():
+    """Regression: pywebview's parse_file_type() validates the filter
+    description against ``^([\\w ]+)\\(...`` — word chars and spaces only.
+
+    A hyphen (the previous "MVR-Dateien (*.mvr)") makes it raise ValueError,
+    which fired on every dropzone click and every export Save dialog.
+    ``api_module.MVR_FILE_TYPES`` is the single source of truth both
+    ``choose_mvr`` and ``run_export`` pass to ``create_file_dialog`` — assert
+    directly against pywebview's own parser so a future edit that
+    reintroduces an invalid character fails here instead of in production.
+    """
+    from webview.util import parse_file_type
+
+    assert len(api_module.MVR_FILE_TYPES) >= 1
+    for file_type in api_module.MVR_FILE_TYPES:
+        description, extensions = parse_file_type(file_type)
+        assert description == "MVR Dateien"
+        assert extensions == "*.mvr"
