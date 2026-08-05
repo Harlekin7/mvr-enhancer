@@ -772,3 +772,129 @@ def test_set_gdtf_clears_stale_warnings(tmp_path):
     assert state["warnings"]["fallbacks"] == []
     assert state["warnings"]["collisions"] == []
     assert state["warnings"]["cleanup_preview"] is None
+
+
+# ──── Fix round 2: whole-branch review (B1/B2/B5) ────
+
+
+def test_toast_event_carries_method_tag(tmp_path):
+    """Failure toasts must name the method they belong to.
+
+    Without it the UI can only clear ALL pending watchdogs when any toast
+    arrives, and it can't tell whether a given error belongs to the login
+    modal (evt.method === "share_login") or somewhere else entirely.
+    """
+    api = _make_api(tmp_path)
+
+    api.load_mvr(str(tmp_path / "does-not-exist.mvr"))
+
+    toasts = [e for e in api.events if e["type"] == "toast"]
+    assert len(toasts) == 1
+    assert toasts[0]["method"] == "load_mvr"
+    assert toasts[0]["level"] == "error"
+
+    api.events.clear()
+    api.share_search("anything")  # not logged in -> no hits, no error
+    api.set_gdtf("nope", "x")  # sync method: no event, returns an error dict
+
+    api.events.clear()
+    api.share_download(1, "unknown-type-key")
+    toasts = [e for e in api.events if e["type"] == "toast"]
+    assert len(toasts) == 1
+    assert toasts[0]["method"] == "share_download"
+
+
+def test_assignment_change_invalidates_finished_export(tmp_path):
+    """After changing an assignment, step 3 must not still claim "exported".
+
+    The exported view (report banner, output path, "Neuen Export starten")
+    describes a file that no longer matches the current assignments, so the
+    same call that drops the stale warnings has to drop the stale export
+    state too.
+    """
+    library_dir = _setup_library(tmp_path)
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[{"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111",
+                   "address": 1}],
+    )
+
+    api = _make_api(tmp_path, library_dir)
+    api.load_mvr(str(mvr_path))
+    key = api.get_state()["data"]["types"][0]["key"]
+
+    api.run_export(str(tmp_path / "out.mvr"))
+    assert api.get_state()["data"]["export"]["done"] is True
+
+    api.set_mode(key, "Mode 2")
+    assert api.get_state()["data"]["export"]["done"] is False
+
+    # ... and the same for set_gdtf / set_removed.
+    api.run_export(str(tmp_path / "out2.mvr"))
+    assert api.get_state()["data"]["export"]["done"] is True
+    api.set_removed(key, True)
+    assert api.get_state()["data"]["export"]["done"] is False
+
+    api.set_removed(key, False)
+    api.run_export(str(tmp_path / "out3.mvr"))
+    assert api.get_state()["data"]["export"]["done"] is True
+    api.set_gdtf(key, "")
+    assert api.get_state()["data"]["export"]["done"] is False
+
+
+def test_run_export_emits_progress_right_after_save_dialog(tmp_path):
+    """The run_export watchdog must not tick while the Save dialog is open.
+
+    create_file_dialog() blocks for as long as the user browses, which can
+    easily exceed the UI's 30s watchdog. Python therefore emits a "progress"
+    event as soon as the dialog has returned; the UI arms the run_export
+    watchdog on that event instead of on the call itself.
+    """
+    library_dir = _setup_library(tmp_path)
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[{"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111",
+                   "address": 1}],
+    )
+
+    api = _make_api(tmp_path, library_dir)
+    api.load_mvr(str(mvr_path))
+
+    export_path = tmp_path / "picked" / "scene_MA3.mvr"
+
+    class RecordingWindow(FakeWindow):
+        def create_file_dialog(self, *args, **kwargs):
+            # No progress event may have been emitted before the dialog returns.
+            assert [e for e in api.events if e["type"] == "progress"] == []
+            return super().create_file_dialog(*args, **kwargs)
+
+    window = RecordingWindow(dialog_paths=str(export_path))
+    api.set_window(window)
+    api.events.clear()
+
+    result = api.run_export("")
+    assert result["ok"] is True
+
+    types = [e["type"] for e in api.events]
+    progress = [e for e in api.events if e["type"] == "progress"]
+    assert len(progress) == 1
+    assert progress[0]["method"] == "run_export"
+    assert types.index("progress") < types.index("result")
+
+
+def test_run_export_cancelled_dialog_emits_no_progress(tmp_path):
+    library_dir = _setup_library(tmp_path)
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[{"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111",
+                   "address": 1}],
+    )
+
+    api = _make_api(tmp_path, library_dir)
+    api.load_mvr(str(mvr_path))
+    api.set_window(FakeWindow(dialog_paths=None))
+    api.events.clear()
+
+    api.run_export("")
+
+    assert [e for e in api.events if e["type"] == "progress"] == []

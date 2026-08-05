@@ -7,6 +7,16 @@
 /* Base                                                              */
 /* ---------------------------------------------------------------- */
 *, *::before, *::after { box-sizing: border-box; }
+
+/* Global 75% scale (user request). Every pixel value further down is still the
+   1280px-reference value from the design handoff — nothing below is rescaled.
+   `zoom` (not `transform: scale`) because it reflows: the root element's zoom
+   divides the initial containing block by the factor, so a 960px-wide window
+   lays out as ~1280 logical px and `height: 100%` still fills the viewport.
+   It is on `html` rather than `#app` on purpose: the modal overlays and the
+   toast stack are siblings of `#app`, and they must scale with it while their
+   `position: fixed; inset: 0` keeps covering the whole viewport. */
+html { zoom: 0.75; }
 html, body { height: 100%; }
 body {
   margin: 0;
@@ -27,7 +37,10 @@ button { font: inherit; }
 #app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  /* `height: 100%` rather than `100vh`: viewport units are NOT divided by the
+     root zoom, so `100vh` under `zoom: 0.75` would leave a quarter of the
+     window blank. `100%` resolves against html/body's zoom-adjusted height. */
+  height: 100%;
   overflow: hidden;
 }
 
@@ -94,7 +107,14 @@ button { font: inherit; }
 /* Accordion sections                                                 */
 /* ---------------------------------------------------------------- */
 .sect {
-  min-height: 0;
+  /* `overflow: hidden` is load-bearing, not cosmetic: the ACTIVE section is
+     `flex: 1 1 auto` and therefore shrinks at small window heights. Without
+     clipping, its body kept its intrinsic height and was painted straight over
+     the section heads below it, so at the minimum window size the accordion
+     lost its navigation entirely. `min-height` keeps every section tall enough
+     for its own collapsed head so a shrunk section can't clip that away. */
+  overflow: hidden;
+  min-height: 96px;
   display: flex;
   flex-direction: column;
   flex: 0 0 auto;
@@ -165,6 +185,10 @@ button { font: inherit; }
 /* Section content / headline                                        */
 /* ---------------------------------------------------------------- */
 .sect-content { display: flex; flex-direction: column; min-height: 0; }
+/* Eyebrow (11px) + 6px gap + title (21px × 1.2) ≈ 44px — the floor below which
+   a shrinking section would start clipping its own clickable head. */
+.sect-head { min-height: 44px; flex: none; }
+.sect:not(.active) .sect-content { min-height: 44px; }
 #sect-1 .sect-content { padding-bottom: 28px; }
 #sect-2 .sect-content { padding-top: 32px; padding-bottom: 28px; }
 #sect-3 .sect-content { padding-top: 32px; padding-bottom: 40px; }
@@ -421,6 +445,9 @@ button { font: inherit; }
   color: var(--text-inverse-muted);
 }
 .match-table tbody tr.row-problem { background: rgba(92, 174, 221, 0.08); }
+/* Waiting state: the row is a grid, so a colspan cell wouldn't span — the
+   placeholder row opts out of the column grid entirely. */
+.match-table tbody tr.row-placeholder { display: block; }
 
 .type-name { font-weight: 600; font-size: 14.5px; color: var(--white); }
 .type-meta { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-inverse-muted); margin-top: 2px; }
@@ -474,6 +501,13 @@ button { font: inherit; }
 }
 .report-banner-title { font-weight: 600; font-size: 16px; color: var(--white); }
 .report-banner-sub { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-inverse-muted); margin-top: 2px; }
+
+.waiting-placeholder {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-inverse-muted);
+  padding: 12px 0 20px;
+}
 
 .export-stats { display: flex; gap: 40px; flex-wrap: wrap; padding: 4px 0 20px; }
 .stat { display: flex; flex-direction: column; gap: 6px; }

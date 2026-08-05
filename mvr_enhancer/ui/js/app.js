@@ -125,6 +125,14 @@
     choose_library_dir: "rescan_library",
   };
 
+  // Methods whose watchdog must NOT be armed when the call is made, because
+  // they first open a blocking native dialog the user may sit in for minutes
+  // (well past WATCHDOG_TIMEOUT_MS). Python emits a {type:"progress", method}
+  // event as soon as the dialog has returned; the watchdog is armed on THAT.
+  var WATCHDOG_ARM_ON_PROGRESS = {
+    run_export: true,
+  };
+
   // Silent UI reset run when a watchdog fires OR when a toast arrives
   // while it's pending (the toast already explains the failure, so no
   // additional message is shown in that case — just the state cleanup).
@@ -216,7 +224,8 @@
           if (result.data && typeof result.data === "object" && !Array.isArray(result.data) && "mvr_loaded" in result.data) {
             applyState(result.data);
           } else if (result.data && result.data.started) {
-            armWatchdog(method);
+            var watchdogKey = WATCHDOG_METHOD_ALIASES[method] || method;
+            if (!WATCHDOG_ARM_ON_PROGRESS[watchdogKey]) armWatchdog(method);
           }
         } else if (result && !result.ok) {
           pushToast("error", result.error || "Unbekannter Fehler.");
@@ -232,6 +241,19 @@
   function applyState(newState) {
     var wasLoaded = serverState ? serverState.mvr_loaded : false;
     var wasLoggedIn = serverState ? serverState.share.logged_in : false;
+    var wasPath = serverState && serverState.file_meta ? serverState.file_meta.path : undefined;
+    var newPath = newState.file_meta ? newState.file_meta.path : undefined;
+
+    // lastExportReport is the EnrichReport of ONE specific export run. It
+    // outlives a single state push on purpose (Python only sends it once, in
+    // the run_export "result" event, and Schritt 3 keeps showing it), but it
+    // must not survive the file it describes: loading a different MVR or
+    // removing the current one would otherwise leave the previous file's
+    // matched/embedded/mesh counts sitting in the Schritt-3 stat row.
+    if (wasPath !== newPath || !newState.mvr_loaded) {
+      lastExportReport = null;
+    }
+
     serverState = newState;
 
     if (!wasLoaded && newState.mvr_loaded) {
@@ -294,7 +316,10 @@
         handleToastEvent(evt);
         break;
       case "progress":
-        // No dedicated progress UI in this iteration — intentionally a no-op.
+        // No dedicated progress UI in this iteration. The event does carry
+        // one responsibility though: it arms the watchdog for ops that were
+        // waiting on a blocking native dialog (see WATCHDOG_ARM_ON_PROGRESS).
+        if (evt.method && WATCHDOG_ARM_ON_PROGRESS[evt.method]) armWatchdog(evt.method);
         break;
       default:
         break;
@@ -303,13 +328,22 @@
 
   function handleToastEvent(evt) {
     var message = evt.message || evt.text || "Unbekannter Fehler.";
-    // A toast means *some* pending long op just resolved (as a failure) —
-    // we can't tell which one from the payload alone (it carries no method
-    // tag), so treat any still-pending watchdog as resolved and run its
-    // silent reset, without re-announcing the timeout message on top of
-    // the real error we're about to show/inline below.
-    clearAllWatchdogs(true);
-    if (pendingLoginModal && evt.level === "error") {
+    // Python tags failure toasts with the method they belong to, so only that
+    // one op's watchdog is resolved (and its silent reset run) — without
+    // re-announcing the timeout message on top of the real error below. The
+    // clearAllWatchdogs() fallback covers untagged toasts from older payloads.
+    // WATCHDOG_RESET.share_login flips pendingLoginModal itself, so the flag
+    // has to be read BEFORE the reset runs.
+    var wasPendingLogin = pendingLoginModal;
+    if (evt.method) {
+      clearWatchdog(evt.method, true);
+    } else {
+      clearAllWatchdogs(true);
+    }
+    // Only a failed login belongs in the modal's inline error line; any other
+    // op's error (an export, a library rescan) must not be re-labelled as a
+    // login problem just because the modal happens to be open.
+    if (wasPendingLogin && evt.level === "error" && evt.method === "share_login") {
       showLoginError(message);
       pendingLoginModal = false;
       return; // inline modal error already shown — skip the duplicate corner toast
@@ -685,7 +719,11 @@
         "</div>"
       );
     }
-    if (!type.candidates.length) {
+    // "No hit" only when there is genuinely nothing to show. A share download
+    // assigns a GDTF whose name may not appear among the (score-matched)
+    // candidates at all — showing the empty state there would render a fully
+    // assigned type as unassigned and offer to search the Share again.
+    if (!type.candidates.length && !assignment.gdtf_name) {
       return (
         '<div class="gdtf-cell-empty">' +
         '<span class="muted-text">kein Treffer in der Bibliothek</span>' +
@@ -695,6 +733,18 @@
       );
     }
     var options = ['<option value="">— kein Treffer —</option>'];
+    var assignedIsCandidate = type.candidates.some(function (c) {
+      return c.gdtf_name === assignment.gdtf_name;
+    });
+    if (assignment.gdtf_name && !assignedIsCandidate) {
+      // Synthetic option for an assignment the candidate list doesn't know
+      // (share download, or a name resolved outside the score matching), so
+      // the select can actually show it as the selected value.
+      options.push(
+        '<option value="' + esc(assignment.gdtf_name) + '" selected>' +
+        esc(assignment.gdtf_name) + "</option>"
+      );
+    }
     type.candidates.forEach(function (c) {
       options.push(
         '<option value="' + esc(c.gdtf_name) + '"' +
@@ -761,6 +811,16 @@
 
   function renderMatchTable(s) {
     var tbody = $("match-tbody");
+    // Spec-mandated waiting state: with no source MVR there is nothing to
+    // match, so the table shows one placeholder row and "Weiter" is disabled
+    // (it would otherwise call prepare_export() and fail with a toast).
+    if (!s.mvr_loaded) {
+      tbody.innerHTML =
+        '<tr class="row-placeholder"><td><span class="muted-text">wartet auf Quell-MVR</span></td></tr>';
+      $("btn-continue").disabled = true;
+      return;
+    }
+    $("btn-continue").disabled = false;
     var rows = s.types
       .filter(function (type) {
         return !localState.nurProbleme || isFilterProblem(type.assignment);
@@ -850,8 +910,15 @@
 
   function renderSection3(s) {
     var warnCount = s.warnings.fallbacks.length + s.warnings.collisions.length;
+    // Spec-mandated waiting state: without a source MVR there are no stats and
+    // nothing to export, so the main column collapses to a placeholder and the
+    // export button is disabled.
+    var waiting = !s.mvr_loaded;
+    $("s3-placeholder").classList.toggle("hidden", !waiting);
+    $("export-stats").classList.toggle("hidden", waiting);
+    $("warn-stack").classList.toggle("hidden", waiting);
 
-    $("report-banner").classList.toggle("hidden", !s.export.done);
+    $("report-banner").classList.toggle("hidden", waiting || !s.export.done);
     if (s.export.done) {
       $("report-banner-sub").textContent =
         s.export.path + " · " + formatNumber(s.export.size_mb, 1) + " MB · " + s.export.time;
@@ -893,7 +960,7 @@
       btn.textContent = "Exportiere…";
       btn.disabled = true;
     } else {
-      btn.disabled = false;
+      btn.disabled = waiting;
       if (warnCount > 0) {
         btn.classList.add("btn-amber");
         btn.textContent = "Mit " + warnCount + " Warnungen exportieren";

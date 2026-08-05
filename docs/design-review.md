@@ -115,6 +115,45 @@ Bereinigungszeile jetzt über `cleanupRowHtml()`.
 - `.export-panel-post`: `gap: 12px` statt 14px (Prototyp nutzt im Nach-Export-Panel 12px).
 - Modal-Overlay: `var(--surface-overlay)` statt hart kodiertem `rgba(8,19,31,0.7)` (Token = 0.72).
 
+## Nachtrag: globale 75%-Skalierung (Nutzerwunsch)
+
+Auf Wunsch skaliert die gesamte App auf **75%**. Umgesetzt als `html { zoom: 0.75 }`
+in `css/app.css`; das Fenster (`main.py`) ist entsprechend **960×777** statt 1280×1036,
+`min_size` **830×620** statt 1100×800.
+
+**Die Pixelwerte aus dem Handoff bleiben unverändert** — es ist bewusst *keine*
+Neuberechnung der Layout-Werte, sondern eine Skalierung der Darstellung. `zoom` (nicht
+`transform: scale`) weil es umbricht: die Root-`zoom` teilt den Initial Containing Block
+durch den Faktor, ein 960px breites Fenster rechnet also weiterhin gegen ~1280 logische
+px — das Layout ist damit **identisch** zum 1280er Referenz-Rendering, nur kleiner.
+
+`zoom` sitzt auf `html`, nicht auf `#app`: Modal-Overlays und der Toast-Stack sind
+Geschwister von `#app` und müssen mitskalieren, während ihr `position: fixed; inset: 0`
+weiter den ganzen Viewport deckt. `#app` nutzt jetzt `height: 100%` statt `100vh` —
+Viewport-Einheiten werden von der Root-`zoom` *nicht* geteilt, `100vh` hätte unter
+`zoom: 0.75` ein Viertel des Fensters leer gelassen.
+
+Verifiziert per Headless-Edge-Screenshot bei 960×777 (S1/S2/S3, vor & nach Export,
+Leerzustand) gegen die 1280×1000-Referenzen in `docs/screenshots/` — deckungsgleiche
+Anordnung, gleiche Umbrüche.
+
+### Nachtrag: Layout-Kollaps bei minimaler Fenstergröße behoben
+
+Bei minimaler Fenstergröße überschrieb der Body der *aktiven* Sektion (`flex: 1 1 auto`,
+schrumpft) die Sektionsköpfe darunter — die Akkordeon-Navigation war damit unerreichbar.
+`.sect` bekommt jetzt `overflow: hidden` (Clipping statt Überzeichnen) und
+`min-height: 96px`, `.sect-head` zusätzlich `min-height: 44px` (Eyebrow 11px + 6px +
+Titel 21px×1.2), damit eine geschrumpfte Sektion nicht ihren eigenen Kopf abschneidet.
+Verifiziert per Headless-Screenshot bei 830×620 mit jeweils Sektion 1, 2 und 3 aktiv:
+alle drei Köpfe sichtbar.
+
+### Nachtrag: Wartezustände (Spec-Vorgabe)
+
+Ohne geladenes Quell-MVR zeigt `#match-tbody` eine einzelne Platzhalterzeile
+„wartet auf Quell-MVR" und `#btn-continue` ist deaktiviert; der Hauptteil von Schritt 3
+zeigt „wartet auf Matching" (statt einer 0/0-Kennzahlenzeile) und `#btn-export` ist
+deaktiviert.
+
 ## Geprüft und in Ordnung
 
 - **Header:** 56px, Wordmark Barlow Condensed 700/22px/0.06em, 1px-Trenner, Subbrand

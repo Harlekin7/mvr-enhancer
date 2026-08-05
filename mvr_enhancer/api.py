@@ -170,9 +170,15 @@ class Api:
             # da niemand auf den Thread wartet.
             self._emit({"type": "result", "method": method, "data": result.get("data")})
         else:
+            # ``method`` gehoert zwingend in die Nutzlast: die UI haelt pro
+            # Methode einen Watchdog und muss beim Fehlerfall genau den
+            # zugehoerigen aufloesen (statt alle) — und nur ein
+            # ``share_login``-Toast darf in die Inline-Fehlerzeile des
+            # Login-Modals wandern.
             self._emit(
                 {
                     "type": "toast",
+                    "method": method,
                     "level": "error",
                     "message": result.get("error", "Unbekannter Fehler."),
                 }
@@ -341,7 +347,7 @@ class Api:
         return candidates
 
     def _clear_warnings(self) -> None:
-        """Verwirft veraltete Export-Warnungen nach einer Zuordnungs-Aenderung.
+        """Verwirft veraltete Export-Warnungen UND den Export-Status.
 
         ``warnings`` wird ausschliesslich von ``prepare_export()`` befuellt;
         nach ``set_gdtf``/``set_mode``/``set_removed`` waeren Fallback-/
@@ -349,8 +355,16 @@ class Api:
         Aufruf sonst fuer die neue Zuordnung nicht mehr gueltig. Die UI ist
         dafuer verantwortlich, ``prepare_export()`` bei Bedarf erneut
         aufzurufen.
+
+        ``export`` wird aus demselben Grund mit zurueckgesetzt: die
+        Nach-Export-Ansicht in Schritt 3 (Erfolgs-Banner, Ausgabepfad,
+        "Ordner oeffnen") beschreibt eine Datei, die zu den geaenderten
+        Zuordnungen nicht mehr passt — sie darf nach einer Zuordnungs-
+        Aenderung nicht stehenbleiben und den Nutzer glauben lassen, der
+        Export sei aktuell.
         """
         self._warnings = dict(_EMPTY_WARNINGS)
+        self._export_state = dict(_EMPTY_EXPORT_STATE)
 
     # ──── MVR laden/entfernen ────
 
@@ -835,6 +849,13 @@ class Api:
             # zurueck, manche Versionen/Backends eine Sequenz — beides
             # normalisieren.
             path = result[0] if isinstance(result, (list, tuple)) else result
+
+        # Ab hier laeuft die eigentliche Arbeit ohne weitere Nutzerinteraktion.
+        # Der native Speicherdialog oben blockiert so lange, wie der Nutzer
+        # blaettert — leicht laenger als der 30-Sekunden-Watchdog der UI. Die
+        # UI armiert den run_export-Watchdog deshalb erst auf dieses Event,
+        # nicht schon beim Aufruf.
+        self._emit({"type": "progress", "method": "run_export", "message": "Export laeuft…"})
 
         if not os.path.isfile(mvr_path):
             return {

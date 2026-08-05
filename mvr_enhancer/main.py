@@ -39,9 +39,12 @@ def run() -> None:
         _WINDOW_TITLE,
         url=str(ui_path),
         js_api=api,
-        width=1280,
-        height=1036,
-        min_size=(1100, 800),
+        # 75% of the design's 1280×1036 reference window (user request). The UI
+        # matches it with `html { zoom: 0.75 }` in css/app.css, so the layout
+        # still computes against ~1280 logical px inside this smaller window.
+        width=960,
+        height=777,
+        min_size=(830, 620),
     )
     api.set_window(window)
 
