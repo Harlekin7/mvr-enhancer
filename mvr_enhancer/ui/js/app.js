@@ -44,7 +44,7 @@
   var exporting = false;
   var pendingLoginModal = false;
   var autoAdvanceTimer = null;
-  var dzLoad = { active: false, startTs: 0, finishTimer: null };
+  var dzLoad = { active: false, startTs: 0, finishTimer: null, percent: 0 };
   var DZ_MIN_MS = 1000;
   var DZ_TITLE_IDLE = "MVR-Datei hier ablegen";
   var DZ_TITLE_LOADING = "Lade …";
@@ -57,6 +57,7 @@
     results: [],
     loading: false,
     downloadingRid: null,
+    downloadPercent: null,
   };
 
   // ──── Small helpers ────
@@ -157,6 +158,7 @@
     },
     share_download: function () {
       searchModal.downloadingRid = null;
+      searchModal.downloadPercent = null;
       renderSearchModal();
     },
   };
@@ -329,8 +331,22 @@
         handleToastEvent(evt);
         break;
       case "progress":
-        if (evt.method && WATCHDOG_ARM_ON_PROGRESS[evt.method]) armWatchdog(evt.method);
-        if (evt.method === "load_mvr" && evt.data && evt.data.phase === "start") dzStart();
+        if (evt.method) {
+          var wdKey = WATCHDOG_METHOD_ALIASES[evt.method] || evt.method;
+          // Aktivitaets-Watchdog: JEDES progress-Event stellt die 30-s-Uhr
+          // neu — sie misst Stille, nicht Gesamtdauer.
+          if (WATCHDOG_ARM_ON_PROGRESS[wdKey] || pendingWatchdogs[wdKey] !== undefined) {
+            armWatchdog(evt.method);
+          }
+        }
+        if (evt.method === "load_mvr" && evt.data) {
+          if (evt.data.phase === "start") dzStart();
+          else if (typeof evt.data.percent === "number") dzProgress(evt.data.percent);
+        }
+        if (evt.method === "share_download" && evt.data) {
+          searchModal.downloadPercent = (typeof evt.data.percent === "number") ? evt.data.percent : null;
+          renderSearchModal();
+        }
         break;
       default:
         break;
@@ -397,6 +413,7 @@
   }
 
   function finishDownload(stateData) {
+    searchModal.downloadPercent = null;
     var typeKey = searchModal.typeKey;
     var type = null;
     if (typeKey && stateData && Array.isArray(stateData.types)) {
@@ -460,7 +477,7 @@
     }
     if (id === "modal-share-search") {
       clearTimeout(searchDebounceTimer);
-      searchModal = { typeKey: null, typeName: "", results: [], loading: false, downloadingRid: null };
+      searchModal = { typeKey: null, typeName: "", results: [], loading: false, downloadingRid: null, downloadPercent: null };
     }
   }
 
@@ -483,6 +500,7 @@
       results: [],
       loading: false,
       downloadingRid: null,
+      downloadPercent: null,
     };
     $("share-search-input").value = searchModal.typeName;
     openModal("modal-share-search");
@@ -517,6 +535,7 @@
   function downloadShareResult(rid) {
     if (!searchModal.typeKey) return;
     searchModal.downloadingRid = rid;
+    searchModal.downloadPercent = null;
     renderSearchModal();
     callApi("share_download", rid, searchModal.typeKey).then(function (result) {
       if (!result.ok) {
@@ -563,6 +582,10 @@
     if (item.rating !== undefined && item.rating !== null) metaParts.push("Bewertung " + item.rating);
     var meta = metaParts.join(" · ");
     var downloading = searchModal.downloadingRid === item.rid;
+    var downloadLabel = "Lädt…";
+    if (downloading && typeof searchModal.downloadPercent === "number") {
+      downloadLabel = "Lädt… " + searchModal.downloadPercent + " %";
+    }
     return (
       '<div class="share-result-row">' +
       "<div>" +
@@ -572,7 +595,7 @@
       '<button type="button" class="btn btn-outline btn-sm btn-share-download" data-rid="' +
       esc(item.rid) +
       '" ' + (downloading ? "disabled" : "") + ">" +
-      (downloading ? "Lädt…" : "Übernehmen") +
+      (downloading ? downloadLabel : "Übernehmen") +
       "</button>" +
       "</div>"
     );
@@ -653,6 +676,7 @@
     if (dzLoad.finishTimer) { clearTimeout(dzLoad.finishTimer); dzLoad.finishTimer = null; }
     dzLoad.active = true;
     dzLoad.startTs = Date.now();
+    dzLoad.percent = 15;
     var zone = $("dropzone"), fill = $("dropzone-fill");
     zone.classList.add("loading");
     zone.classList.remove("hidden");
@@ -666,13 +690,29 @@
     fill.style.transform = "scaleX(0)";
     // Reflow erzwingen, damit die folgende Transition ab 0 startet:
     void fill.offsetWidth;
-    fill.style.transition = "transform 1000ms linear";
-    fill.style.transform = "scaleX(0.9)";
+    fill.style.transition = "transform 2000ms ease-out";
+    fill.style.transform = "scaleX(0.15)";
+  }
+
+  // Ruft dzProgress() bei jedem realen "percent"-Fortschritts-Event aus
+  // Python auf (Task 4: {phase:"read"|"match", percent}, gedrosselt,
+  // monoton bis 95). Faellt kein einziges Event an (kleine Datei, sehr
+  // schneller Parse), bleibt es beim Kriechen aus dzStart() bis dzFinish()
+  // den Balken auf 100 % zieht — kein Regressionsrisiko fuer den Kaltstart.
+  function dzProgress(percent) {
+    if (!dzLoad.active || typeof percent !== "number") return;
+    var capped = Math.min(95, Math.max(0, percent));
+    if (capped <= dzLoad.percent) return; // monoton — nie rueckwaerts
+    dzLoad.percent = capped;
+    var fill = $("dropzone-fill");
+    fill.style.transition = "transform 400ms linear";
+    fill.style.transform = "scaleX(" + (capped / 100) + ")";
   }
 
   function dzReset() {
     if (dzLoad.finishTimer) { clearTimeout(dzLoad.finishTimer); dzLoad.finishTimer = null; }
     dzLoad.active = false;
+    dzLoad.percent = 0;
     var zone = $("dropzone"), fill = $("dropzone-fill");
     zone.classList.remove("loading");
     $("dropzone-title").textContent = DZ_TITLE_IDLE;
@@ -689,6 +729,7 @@
     dzLoad.finishTimer = setTimeout(function () {
       dzLoad.finishTimer = null;
       dzLoad.active = false;
+      dzLoad.percent = 0;
       $("dropzone").classList.remove("loading");
       $("dropzone-title").textContent = DZ_TITLE_IDLE;
       fill.style.transition = "none";
