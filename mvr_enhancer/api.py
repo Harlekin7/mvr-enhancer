@@ -250,7 +250,7 @@ class Api:
                             fixture_type.key, assignment.gdtf_name
                         )
                         if assigned_candidate is not None:
-                            assigned_modes = list(assigned_candidate.modes)
+                            assigned_modes = [dict(m) for m in assigned_candidate.modes]
                         else:
                             assigned_modes = self._modes_from_library(assignment.gdtf_name)
                     else:

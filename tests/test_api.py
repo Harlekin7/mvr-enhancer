@@ -1093,10 +1093,13 @@ def test_assigned_modes_for_non_candidate_library_assignment(api_with_loaded_mvr
     # des Typs steht (z. B. "Wash Two" fuer den Beam-Typ).
     state = api_with_loaded_mvr.get_state()["data"]
     type_key = state["types"][0]["key"]
-    other = next(name for name in state["library"]["files"]
-                 if name != state["types"][0]["assignment"]["gdtf_name"])
-    assert not any(c["gdtf_name"] == other for c in state["types"][0]["candidates"]) \
-        or True  # falls doch Kandidat: Test unten prueft trotzdem die Modi
+    candidate_names = {c["gdtf_name"] for c in state["types"][0]["candidates"]}
+    other = next(
+        (name for name in state["library"]["files"] if name not in candidate_names),
+        None,
+    )
+    if other is None:
+        pytest.skip("Bibliothek enthaelt keine Nicht-Kandidaten-GDTF fuer diesen Typ")
     result = api_with_loaded_mvr.set_gdtf(type_key, other)
     assert result["ok"]
     updated = next(t for t in result["data"]["types"] if t["key"] == type_key)
