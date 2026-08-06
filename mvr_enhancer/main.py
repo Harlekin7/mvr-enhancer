@@ -117,5 +117,22 @@ def run() -> None:
     )
     api.set_window(window)
 
+    def _register_dropzone_dnd() -> None:
+        # Erst nach dem Laden der Seite existiert #dropzone. Ohne diesen
+        # Python-seitigen Listener reicht pywebview keine nativen Dateipfade
+        # durch (siehe on_dropzone_drop) — schlaegt die Registrierung fehl,
+        # bleibt die App ueber den Datei-Dialog voll bedienbar.
+        try:
+            element = window.dom.get_element("#dropzone")
+            if element is None:
+                log.warning("#dropzone nicht gefunden — Drag&Drop deaktiviert")
+                return
+            element.on("drop", api.on_dropzone_drop)
+            log.info("Drag&Drop-Listener registriert")
+        except Exception:
+            log.exception("Drag&Drop-Registrierung fehlgeschlagen")
+
+    window.events.loaded += _register_dropzone_dnd
+
     debug = os.environ.get("MVR_ENHANCER_DEBUG") == "1"
     webview.start(debug=debug)

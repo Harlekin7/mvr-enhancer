@@ -30,6 +30,7 @@
     library: { dir: "", count: 0 },
     recent: [],
     warnings: { fallbacks: [], collisions: [], cleanup_preview: null },
+    layer_mode: "single",
     export: { done: false, path: "", size_mb: 0, time: "", default_path: "" },
     assigned_count: 0,
     open_count: 0,
@@ -43,6 +44,10 @@
   var exporting = false;
   var pendingLoginModal = false;
   var autoAdvanceTimer = null;
+  var dzLoad = { active: false, startTs: 0, finishTimer: null };
+  var DZ_MIN_MS = 1000;
+  var DZ_TITLE_IDLE = "MVR-Datei hier ablegen";
+  var DZ_TITLE_LOADING = "Lade …";
   var searchDebounceTimer = null;
   var toasts = [];
   var toastSeq = 0;
@@ -131,6 +136,7 @@
   // event as soon as the dialog has returned; the watchdog is armed on THAT.
   var WATCHDOG_ARM_ON_PROGRESS = {
     run_export: true,
+    load_mvr: true,
   };
 
   // Silent UI reset run when a watchdog fires OR when a toast arrives
@@ -141,6 +147,7 @@
       exporting = false;
       render();
     },
+    load_mvr: dzReset,
     share_login: function () {
       pendingLoginModal = false;
     },
@@ -257,7 +264,13 @@
     serverState = newState;
 
     if (!wasLoaded && newState.mvr_loaded) {
-      scheduleAutoAdvance();
+      // A reload of an already-loaded scene (wasLoaded already true) does not
+      // take this branch — its completion is signalled precisely by the
+      // load_mvr "result" event in handleResult(), which fires on every
+      // successful load regardless of the mvr_loaded transition and is immune
+      // to unrelated state pushes (rescan_library, share_*, ...) that might
+      // land while the bar is animating.
+      if (!dzLoad.active) scheduleAutoAdvance();
     } else if (wasLoaded && !newState.mvr_loaded) {
       cancelAutoAdvance();
     }
@@ -316,10 +329,8 @@
         handleToastEvent(evt);
         break;
       case "progress":
-        // No dedicated progress UI in this iteration. The event does carry
-        // one responsibility though: it arms the watchdog for ops that were
-        // waiting on a blocking native dialog (see WATCHDOG_ARM_ON_PROGRESS).
         if (evt.method && WATCHDOG_ARM_ON_PROGRESS[evt.method]) armWatchdog(evt.method);
+        if (evt.method === "load_mvr" && evt.data && evt.data.phase === "start") dzStart();
         break;
       default:
         break;
@@ -363,8 +374,17 @@
       finishDownload(data);
     } else if (method === "run_export") {
       handleRunExportResult(data);
+    } else if (method === "load_mvr" && dzLoad.active) {
+      // Fires on EVERY successful load (first load and reload of an
+      // already-loaded scene alike) — the "result" event always follows the
+      // "state" event for the same call (see api.py _emit_after) and never
+      // fires for a different method, so this can't be triggered early by an
+      // unrelated state push (rescan_library, share_*, ...) landing while the
+      // bar is still animating.
+      var elapsed = Date.now() - dzLoad.startTs;
+      dzLoad.finishTimer = setTimeout(dzFinish, Math.max(0, DZ_MIN_MS - elapsed));
     }
-    // load_mvr / rescan_library / share_login / share_logout / startup:
+    // rescan_library / share_login / share_logout / startup:
     // no extra handling needed — the paired "state" event already re-rendered.
   }
 
@@ -629,9 +649,59 @@
 
   // ──── Section 1 · Quelle ────
 
+  function dzStart() {
+    if (dzLoad.finishTimer) { clearTimeout(dzLoad.finishTimer); dzLoad.finishTimer = null; }
+    dzLoad.active = true;
+    dzLoad.startTs = Date.now();
+    var zone = $("dropzone"), fill = $("dropzone-fill");
+    zone.classList.add("loading");
+    zone.classList.remove("hidden");
+    // Reload of an already-loaded scene: filecard-block is currently visible
+    // and renderSection1() won't run again until the paired "state" event
+    // arrives (which can be seconds away for a large file) — hide it now so
+    // the loading bar doesn't render stacked on top of the stale filecard.
+    $("filecard-block").classList.add("hidden");
+    $("dropzone-title").textContent = DZ_TITLE_LOADING;
+    fill.style.transition = "none";
+    fill.style.transform = "scaleX(0)";
+    // Reflow erzwingen, damit die folgende Transition ab 0 startet:
+    void fill.offsetWidth;
+    fill.style.transition = "transform 1000ms linear";
+    fill.style.transform = "scaleX(0.9)";
+  }
+
+  function dzReset() {
+    if (dzLoad.finishTimer) { clearTimeout(dzLoad.finishTimer); dzLoad.finishTimer = null; }
+    dzLoad.active = false;
+    var zone = $("dropzone"), fill = $("dropzone-fill");
+    zone.classList.remove("loading");
+    $("dropzone-title").textContent = DZ_TITLE_IDLE;
+    fill.style.transition = "none";
+    fill.style.transform = "scaleX(0)";
+    render();
+  }
+
+  function dzFinish() {
+    // Erfolgsfall: auf 100 % fuellen, kurz stehen lassen, dann umschalten.
+    var fill = $("dropzone-fill");
+    fill.style.transition = "transform 150ms ease-out";
+    fill.style.transform = "scaleX(1)";
+    dzLoad.finishTimer = setTimeout(function () {
+      dzLoad.finishTimer = null;
+      dzLoad.active = false;
+      $("dropzone").classList.remove("loading");
+      $("dropzone-title").textContent = DZ_TITLE_IDLE;
+      fill.style.transition = "none";
+      fill.style.transform = "scaleX(0)";
+      render();
+      scheduleAutoAdvance();
+    }, 200);
+  }
+
   function renderSection1(s) {
-    $("dropzone").classList.toggle("hidden", s.mvr_loaded);
-    $("filecard-block").classList.toggle("hidden", !s.mvr_loaded);
+    var showDropzone = !s.mvr_loaded || dzLoad.active;
+    $("dropzone").classList.toggle("hidden", !showDropzone);
+    $("filecard-block").classList.toggle("hidden", !s.mvr_loaded || dzLoad.active);
 
     if (s.mvr_loaded) {
       $("filecard-name").textContent = s.file_meta.name || "";
@@ -680,6 +750,10 @@
     }
 
     $("chk-gruppieren").checked = !!s.grouping;
+
+    var layerMode = s.layer_mode || "single";
+    $("seg-single").classList.toggle("active", layerMode === "single");
+    $("seg-per-layer").classList.toggle("active", layerMode === "per_layer");
 
     renderMatchTable(s);
   }
@@ -989,12 +1063,14 @@
     // Section 1 — dropzone
     var dropzone = $("dropzone");
     dropzone.addEventListener("click", function () {
+      if (dzLoad.active) return;
       callApi("choose_mvr");
     });
     // The prototype's dropzone carries no button, so it is the only way into
     // the file dialog — keep it keyboard-operable (role=button + tabindex in
     // index.html).
     dropzone.addEventListener("keydown", function (e) {
+      if (dzLoad.active) return;
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         callApi("choose_mvr");
@@ -1008,15 +1084,12 @@
       dropzone.classList.remove("drag-over");
     });
     dropzone.addEventListener("drop", function (e) {
+      // Nur Optik: das Laden uebernimmt der Python-seitige DOM-Listener
+      // (main.py) — pywebview reicht Dateipfade ausschliesslich an Python
+      // durch, ein JS-seitiger pywebviewFullPath-Zugriff ist prinzipbedingt
+      // immer leer.
       e.preventDefault();
       dropzone.classList.remove("drag-over");
-      var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-      var path = file && file.pywebviewFullPath;
-      if (path) {
-        callApi("load_mvr", path);
-      } else {
-        pushToast("info", "Bitte über den Dialog wählen");
-      }
     });
 
     $("btn-remove").addEventListener("click", function (e) {
@@ -1046,6 +1119,10 @@
     });
     $("chk-gruppieren").addEventListener("change", function (e) {
       callApi("set_grouping", e.target.checked);
+    });
+    $("seg-layer-mode").addEventListener("click", function (e) {
+      var btn = e.target.closest(".seg-btn");
+      if (btn && btn.dataset.mode) callApi("set_layer_mode", btn.dataset.mode);
     });
     $("filter-problems").addEventListener("change", function (e) {
       localState.nurProbleme = e.target.checked;

@@ -97,6 +97,8 @@ def build_mvr(
     embedded: dict[str, bytes] | None = None,
     aux_positions: dict[str, str] | None = None,
     poison: bool = False,
+    scene_objects: list[dict] | None = None,
+    layer_matrix: dict[str, str] | None = None,
 ) -> Path:
     """Write a minimal MVR package (ZIP + GeneralSceneDescription.xml).
 
@@ -117,10 +119,20 @@ def build_mvr(
     block and a ``<Position>`` reference to a freshly generated UUID that
     has no corresponding ``AUXData`` definition (a dangling reference),
     to exercise error handling in later parser tasks.
+
+    ``scene_objects`` is a list of dicts with keys ``name``, ``uuid`` and
+    ``layer``, written as non-fixture ``<SceneObject>`` elements grouped
+    into the same per-layer ``<ChildList>`` as fixtures.
+
+    ``layer_matrix`` maps a layer name to the raw ``<Matrix>`` text placed
+    on that layer's ``<Layer>`` element (layers not present in the mapping
+    get no ``<Matrix>`` child at all).
     """
     path = Path(path)
     embedded = embedded or {}
     aux_positions = aux_positions or {}
+    scene_objects = scene_objects or []
+    layer_matrix = layer_matrix or {}
 
     gsd_root = ET.Element(
         "GeneralSceneDescription", {"verMajor": "1", "verMinor": "5"}
@@ -136,6 +148,9 @@ def build_mvr(
             layer_el = ET.SubElement(
                 layers_el, "Layer", {"name": layer_name, "uuid": layer_uuid}
             )
+            if layer_name in layer_matrix:
+                layer_matrix_el = ET.SubElement(layer_el, "Matrix")
+                layer_matrix_el.text = layer_matrix[layer_name]
             layer_child_lists[layer_name] = ET.SubElement(layer_el, "ChildList")
         return layer_child_lists[layer_name]
 
@@ -177,6 +192,17 @@ def build_mvr(
             if position_uuid:
                 position_el = ET.SubElement(fixture_el, "Position")
                 position_el.text = position_uuid
+
+    for scene_object in scene_objects:
+        child_list_el = _child_list_for_layer(scene_object.get("layer", "Layer 1"))
+        ET.SubElement(
+            child_list_el,
+            "SceneObject",
+            {
+                "name": scene_object.get("name", "Object"),
+                "uuid": scene_object.get("uuid", str(uuid.uuid4())),
+            },
+        )
 
     # Only emit AUXData when there is something to put in it: a fully-absent
     # AUXData element is a distinct, testable state (e.g. later tasks exercise

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 64 64">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0D2A45"></stop><stop offset="1" stop-color="#08131F"></stop></linearGradient>
+<linearGradient id="beam" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5CAEDD"></stop><stop offset="1" stop-color="#1B6FB0"></stop></linearGradient>
+<clipPath id="clip"><rect x="2" y="2" width="60" height="60" rx="13"></rect></clipPath>
+</defs>
+<rect x="2" y="2" width="60" height="60" rx="13" fill="url(#bg)"></rect>
+<g clip-path="url(#clip)">
+<rect x="30" y="-20" width="9" height="110" fill="url(#beam)" opacity="0.35" transform="rotate(32 32 32)"></rect>
+<rect x="44" y="-20" width="5" height="110" fill="url(#beam)" opacity="0.55" transform="rotate(32 32 32)"></rect>
+<rect x="16" y="-20" width="4" height="110" fill="#5CAEDD" opacity="0.25" transform="rotate(32 32 32)"></rect>
+</g>
+<path d="M20 12 L36 12 L44 20 L44 48 L20 48 Z" fill="rgba(8,19,31,0.55)" stroke="#fff" stroke-width="4" stroke-linejoin="round"></path>
+<path d="M36 12 L36 20 L44 20" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"></path>
+<circle cx="44" cy="46" r="12" fill="#5CAEDD"></circle>
+<path d="M38.5 46 L42.5 50 L50 41.5" stroke="#08131F" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"></path>
+</svg>

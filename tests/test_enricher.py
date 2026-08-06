@@ -15,10 +15,10 @@ import zipfile
 from xml.etree import ElementTree as ET
 
 from mvr_enhancer.core.analysis import aggregate_fixture_types
-from mvr_enhancer.core.enricher import enrich_mvr
+from mvr_enhancer.core.enricher import _IDENTITY_MATRIX, enrich_mvr
 from mvr_enhancer.core.gdtf import load_gdtf_library
 from mvr_enhancer.core.models import Assignment
-from mvr_enhancer.core.mvr_reader import read_mvr
+from mvr_enhancer.core.mvr_reader import MvrFixture, MvrScene, read_mvr
 from tests.builders import _IDENTITY_MATRIX as _FIXTURE_IDENTITY_MATRIX
 from tests.builders import build_gdtf, build_mvr
 
@@ -769,3 +769,226 @@ def test_user_data_survives(tmp_path):
     data_el = user_data_el.find("Data")
     assert data_el is not None
     assert data_el.get("value") == "marker-123"
+
+
+def _export_root(result):
+    """Parst ``GeneralSceneDescription.xml`` direkt aus einem ``EnrichResult``."""
+    with zipfile.ZipFile(io.BytesIO(result.data)) as zf:
+        return ET.fromstring(zf.read("GeneralSceneDescription.xml"))
+
+
+def test_per_layer_keeps_original_layers_with_3d_grouping(tmp_path):
+    # Szene: 1 zugeordnete Fixture in "Rig A", SceneObjects in "Rig A" und
+    # "Rig B", Layer "Leer" ohne Nicht-Fixture-Elemente (nur eine entfernte
+    # Fixture), Matrix nur auf "Rig A".
+    library_dir = tmp_path / "library"
+    build_gdtf(
+        library_dir / "Testlight@Beam One@rev1.gdtf",
+        manufacturer="Testlight",
+        name="Beam One",
+    )
+    gdtf_library = load_gdtf_library(str(library_dir), force_reload=True)
+
+    mvr = build_mvr(
+        tmp_path / "src.mvr",
+        fixtures=[
+            {"name": "Spot 1", "layer": "Rig A", "address": 1},
+            {"name": "Plugbox", "layer": "Leer", "address": 100},
+        ],
+        scene_objects=[
+            {"name": "Truss A", "layer": "Rig A"},
+            {"name": "Deko B", "layer": "Rig B"},
+        ],
+        layer_matrix={"Rig A": "{1,0,0}{0,1,0}{0,0,1}{5,5,0}"},
+    )
+    scene = read_mvr(str(mvr))
+    types = aggregate_fixture_types(scene)
+    by_name = _types_by_name(types)
+    assignments = {
+        by_name["Spot 1"].key: Assignment(gdtf_name="Beam One", mode_name="Mode 1"),
+        by_name["Plugbox"].key: Assignment(gdtf_name=None, removed=True),
+    }
+    result = enrich_mvr(
+        scene, types, assignments, str(library_dir), gdtf_library,
+        group_by_position=False, layer_mode="per_layer",
+    )
+
+    root = _export_root(result)
+    layer_els = root.findall("./Scene/Layers/Layer")
+    assert [layer.get("name") for layer in layer_els] == ["MVR Enhancer Export", "Rig A", "Rig B"]
+
+    export_layer = layer_els[0]
+    # KEIN 3D-Grouping im Export-Layer im per_layer-Modus:
+    assert export_layer.find("./ChildList/GroupObject[@name='3D']") is None
+    assert len(export_layer.findall("./ChildList/Fixture")) == 1
+
+    rig_a = layer_els[1]
+    src_scene = read_mvr(str(mvr))
+    assert rig_a.get("uuid") == src_scene.layers[0].uuid          # Original-uuid
+    assert rig_a.find("Matrix").text == "{1,0,0}{0,1,0}{0,0,1}{5,5,0}"
+    groups = rig_a.findall("./ChildList/GroupObject")
+    assert len(groups) == 1 and groups[0].get("name") == "3D"
+    import uuid as uuid_mod
+
+    from mvr_enhancer.core.enricher import _NS
+    assert groups[0].get("uuid") == str(uuid_mod.uuid5(_NS, f"group_3D_{rig_a.get('uuid')}"))
+    assert [el.get("name") for el in groups[0].findall("./ChildList/SceneObject")] == ["Truss A"]
+
+    rig_b = layer_els[2]
+    assert rig_b.find("Matrix").text == _IDENTITY_MATRIX          # Fallback
+    # "Leer" fehlt: keine Nicht-Fixture-Elemente.
+
+
+def test_per_layer_grouping_by_position_still_works(tmp_path):
+    # group_by_position=True + layer_mode="per_layer": Positions-Gruppen im
+    # Export-Layer vorhanden, Original-Layer zusaetzlich.
+    library_dir = tmp_path / "library"
+    build_gdtf(
+        library_dir / "Testlight@Beam One@rev1.gdtf",
+        manufacturer="Testlight",
+        name="Beam One",
+    )
+    gdtf_library = load_gdtf_library(str(library_dir), force_reload=True)
+
+    mvr = build_mvr(
+        tmp_path / "src.mvr",
+        fixtures=[
+            {"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111",
+             "address": 1, "position_uuid": "aaaaaaaa-0000-0000-0000-000000000000",
+             "layer": "Rig A"},
+            {"name": "Spot A", "uuid": "22222222-2222-2222-2222-222222222222",
+             "address": 2, "position_uuid": "bbbbbbbb-0000-0000-0000-000000000000",
+             "layer": "Rig A"},
+        ],
+        scene_objects=[{"name": "Truss A", "layer": "Rig A"}],
+        aux_positions={
+            "aaaaaaaa-0000-0000-0000-000000000000": "Truss 1",
+            "bbbbbbbb-0000-0000-0000-000000000000": "Truss 2",
+        },
+    )
+    scene = read_mvr(str(mvr))
+    types = aggregate_fixture_types(scene)
+    key = types[0].key
+    assignments = {key: Assignment(gdtf_name="Beam One", mode_name="Mode 1")}
+
+    result = enrich_mvr(
+        scene, types, assignments, str(library_dir), gdtf_library,
+        group_by_position=True, layer_mode="per_layer",
+    )
+
+    root = _export_root(result)
+    layer_els = root.findall("./Scene/Layers/Layer")
+    assert [layer.get("name") for layer in layer_els] == ["MVR Enhancer Export", "Rig A"]
+
+    export_layer = layer_els[0]
+    position_groups = export_layer.findall("./ChildList/GroupObject")
+    assert {g.get("name") for g in position_groups} == {"Truss 1", "Truss 2"}
+    for group in position_groups:
+        assert len(group.findall("./ChildList/Fixture")) == 1
+    assert result.report.position_group_count == 2
+
+    rig_a = layer_els[1]
+    rig_a_groups = rig_a.findall("./ChildList/GroupObject")
+    assert len(rig_a_groups) == 1 and rig_a_groups[0].get("name") == "3D"
+    assert [el.get("name") for el in rig_a_groups[0].findall("./ChildList/SceneObject")] == ["Truss A"]
+
+
+def test_unknown_layer_mode_falls_back_to_single(tmp_path):
+    # layer_mode="quatsch" erzeugt exakt denselben Baum wie layer_mode="single"
+    # (ein Layer, 3D-Gruppe im Export-Layer).
+    library_dir = tmp_path / "library"
+    build_gdtf(
+        library_dir / "Testlight@Beam One@rev1.gdtf",
+        manufacturer="Testlight",
+        name="Beam One",
+    )
+    gdtf_library = load_gdtf_library(str(library_dir), force_reload=True)
+
+    mvr = build_mvr(
+        tmp_path / "src.mvr",
+        fixtures=[
+            {"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111",
+             "address": 1, "layer": "Rig A"},
+        ],
+        scene_objects=[{"name": "Truss A", "layer": "Rig A"}],
+    )
+
+    def _fresh():
+        scene = read_mvr(str(mvr))
+        types = aggregate_fixture_types(scene)
+        key = types[0].key
+        assignments = {key: Assignment(gdtf_name="Beam One", mode_name="Mode 1")}
+        return scene, types, assignments
+
+    scene, types, assignments = _fresh()
+    single_result = enrich_mvr(
+        scene, types, assignments, str(library_dir), gdtf_library, layer_mode="single",
+    )
+
+    scene, types, assignments = _fresh()
+    unknown_result = enrich_mvr(
+        scene, types, assignments, str(library_dir), gdtf_library, layer_mode="quatsch",
+    )
+
+    single_xml = ET.tostring(_export_root(single_result))
+    unknown_xml = ET.tostring(_export_root(unknown_result))
+    assert unknown_xml == single_xml
+
+    root = _export_root(unknown_result)
+    layer_els = root.findall("./Scene/Layers/Layer")
+    assert [layer.get("name") for layer in layer_els] == ["MVR Enhancer Export"]
+    assert layer_els[0].find("./ChildList/GroupObject[@name='3D']") is not None
+
+
+def test_per_layer_without_layer_infos_falls_back_to_single_3d_group(tmp_path):
+    # Defensive: MvrScene mit non_fixture_elements, aber leerer layers-Liste
+    # (synthetisch konstruiert) -> Elemente landen in der 3D-Gruppe des
+    # Export-Layers statt verloren zu gehen.
+    library_dir = tmp_path / "library"
+    build_gdtf(
+        library_dir / "Testlight@Beam One@rev1.gdtf",
+        manufacturer="Testlight",
+        name="Beam One",
+    )
+    gdtf_library = load_gdtf_library(str(library_dir), force_reload=True)
+
+    fixture_el = ET.Element(
+        "Fixture",
+        {"name": "Spot A", "uuid": "11111111-1111-1111-1111-111111111111"},
+    )
+    ET.SubElement(fixture_el, "GDTFSpec").text = ""
+    ET.SubElement(fixture_el, "GDTFMode").text = ""
+    addresses_el = ET.SubElement(fixture_el, "Addresses")
+    ET.SubElement(addresses_el, "Address", {"break": "0"}).text = "1"
+    ET.SubElement(fixture_el, "Matrix").text = _FIXTURE_IDENTITY_MATRIX
+
+    fixture = MvrFixture(
+        element=fixture_el,
+        uuid=fixture_el.get("uuid"),
+        name="Spot A",
+        gdtf_spec="",
+        gdtf_mode="",
+        dmx_address=1,
+        matrix=_FIXTURE_IDENTITY_MATRIX,
+    )
+    non_fixture_el = ET.Element(
+        "SceneObject", {"name": "Truss A", "uuid": str(uuid.uuid4())},
+    )
+    scene = MvrScene(fixtures=[fixture], non_fixture_elements=[non_fixture_el], layers=[])
+
+    types = aggregate_fixture_types(scene)
+    key = types[0].key
+    assignments = {key: Assignment(gdtf_name="Beam One", mode_name="Mode 1")}
+
+    result = enrich_mvr(
+        scene, types, assignments, str(library_dir), gdtf_library, layer_mode="per_layer",
+    )
+
+    root = _export_root(result)
+    layer_els = root.findall("./Scene/Layers/Layer")
+    assert [layer.get("name") for layer in layer_els] == ["MVR Enhancer Export"]
+
+    export_layer = layer_els[0]
+    group_3d = export_layer.find("./ChildList/GroupObject[@name='3D']")
+    assert group_3d is not None
+    assert [el.get("name") for el in group_3d.findall("./ChildList/SceneObject")] == ["Truss A"]

@@ -8,9 +8,16 @@ Windows-Desktop-App, die ein aus Vectorworks exportiertes MVR pro Fixture-Typ mi
 
 Der Workflow läuft in drei Schritten, die du als Akkordeon durchgehst:
 
-1. **Quelle** — MVR-Datei per Drag & Drop oder Dateidialog laden. Du siehst Datei-Kennzahlen (Fixtures, Fixture-Typen, 3D-Meshes, Positionen) und eine kurze Sicherheitsprüfung.
-2. **Matching** — jeder Fixture-Typ bekommt score-basierte GDTF-Vorschläge aus deiner lokalen Bibliothek und (optional) GDTF Share. Du wählst pro Typ die passende GDTF-Datei und den DMX-Modus — oder entfernst den Typ ganz aus dem Export. Du hast immer das letzte Wort.
+1. **Quelle** — MVR-Datei auf die Ablagefläche ziehen oder klicken, um sie per Dateidialog zu wählen (alternativ aus der Zuletzt-Liste). Während des Ladens zeigt die Ablagefläche einen kurzen Fortschrittsbalken. Du siehst Datei-Kennzahlen (Fixtures, Fixture-Typen, 3D-Meshes, Positionen) und eine kurze Sicherheitsprüfung.
+2. **Matching** — jeder Fixture-Typ bekommt score-basierte GDTF-Vorschläge aus deiner lokalen Bibliothek und (optional) GDTF Share. Du wählst pro Typ die passende GDTF-Datei und den DMX-Modus — oder entfernst den Typ ganz aus dem Export. Du hast immer das letzte Wort. In der Quellen-Leiste stellst du außerdem den Export-Modus ein (siehe [Export-Modi](#export-modi)).
 3. **Export** — vor dem Export siehst du offene Warnungen (fehlende Zuordnungen, Modus-Fallbacks, Adress-Kollisionen) und eine Vorschau der Bereinigung. Der Export schreibt ein neues MVR: Gift-Elemente (`CustomCommands`, `Position`) entfernt, verwaiste GDTFs ausgeschlossen, Layer nach Position neu organisiert.
+
+## Export-Modi
+
+In der Quellen-Leiste von Schritt 2 schaltest du zwischen zwei Modi um:
+
+- **Single Layer** (Standard) — alles landet in einem Layer „MVR Enhancer Export": die Fixtures (optional nach Position gruppiert) plus eine „3D"-Gruppe mit allen 3D-Objekten der Szene.
+- **Per Layer** — die Fixtures liegen weiterhin im Layer „MVR Enhancer Export"; zusätzlich bleibt jeder Original-Layer der Quell-MVR erhalten, der 3D-Objekte enthält, und bekommt darin eine eigene „3D"-Gruppe (erscheint in grandMA3 als Grouping-Fixture). Original-Layer ohne 3D-Objekte entfallen.
 
 ## Download & Nutzung
 
@@ -23,12 +30,13 @@ Der Workflow läuft in drei Schritten, die du als Akkordeon durchgehst:
 - In der Quellen-Leiste (Schritt 2) wählst du einen lokalen Ordner mit GDTF-Dateien als Bibliothek. Der Ordner wird gescannt, die Fixtures stehen danach als Score-Vorschläge zur Verfügung.
 - Optional kannst du dich mit deinem [GDTF Share](https://www.gdtf-share.com/)-Account anmelden, um fehlende Fixtures direkt zu suchen und in deine Bibliothek zu laden — ohne den Umweg über den Browser.
 
-## Bekannte Grenzen (v0.1.0)
+## Bekannte Grenzen (v0.2.0)
 
 - Fixtures mit mehreren DMX-Breaks werden aktuell als Single-Break gelesen — die Adress-Kollisionsprüfung kann Kollisionen dadurch unterschätzen.
 - Ein Footprint, der über eine 512-Kanal-Universumsgrenze reicht, wird vollständig dem Start-Universum zugerechnet.
 - Ein Modus mit 0 Kanälen deaktiviert die Kollisionsprüfung für diesen Typ.
 - Bei Überschreiten der ZIP-Schutzlimits wird die Szene gekürzt (Schutz vor manipulierten Dateien).
+- Ein MVR-Import kann vorhandene grandMA3-Show-Layer nicht löschen — leere Layer in einer bestehenden Show stammen aus früheren Importen und müssen dort manuell entfernt werden.
 - Backlog (noch nicht enthalten): Score-Legende-Tooltip, Detailansicht der Adress-Kollision, „Overrides teilen", „Diff zum letzten Export".
 
 ## Entwicklung

@@ -101,6 +101,20 @@ class MvrFixture:
 
 
 @dataclass
+class MvrLayerInfo:
+    """Provenienz eines Original-Layers: Rohwerte, ohne Fallbacks.
+
+    Fallbacks fuer fehlende uuid/name/matrix wendet erst der Enricher beim
+    Bauen des Per-Layer-Exports an (das uuid5-Namespace lebt dort).
+    """
+
+    uuid: str
+    name: str
+    matrix_text: str | None
+    non_fixture_elements: list[ET.Element] = field(default_factory=list)
+
+
+@dataclass
 class MvrScene:
     """Komplette geparste MVR-Szene."""
 
@@ -110,6 +124,7 @@ class MvrScene:
     embedded_files: dict[str, bytes] = field(default_factory=dict)
     user_data: ET.Element | None = None
     aux_data: ET.Element | None = None
+    layers: list[MvrLayerInfo] = field(default_factory=list)
 
 
 def _parse_fixture(element: ET.Element) -> MvrFixture:
@@ -317,7 +332,19 @@ def _read_mvr_archive(zf: zipfile.ZipFile, path: str) -> MvrScene:
         return scene
 
     for layer in layers_el.findall("Layer"):
-        _collect_elements(layer, scene.fixtures, scene.non_fixture_elements)
+        layer_non_fixtures: list[ET.Element] = []
+        _collect_elements(layer, scene.fixtures, layer_non_fixtures)
+        scene.non_fixture_elements.extend(layer_non_fixtures)
+        layer_matrix_el = layer.find("Matrix")
+        matrix_text = None
+        if layer_matrix_el is not None and layer_matrix_el.text:
+            matrix_text = layer_matrix_el.text
+        scene.layers.append(MvrLayerInfo(
+            uuid=layer.get("uuid", ""),
+            name=layer.get("name", ""),
+            matrix_text=matrix_text,
+            non_fixture_elements=layer_non_fixtures,
+        ))
 
     log.info("MVR gelesen: %s (%d Fixtures, %d Nicht-Fixture-Elemente, %d Dateien)",
              path, len(scene.fixtures), len(scene.non_fixture_elements),
