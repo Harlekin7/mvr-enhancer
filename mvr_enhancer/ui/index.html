@@ -17,7 +17,7 @@
     <span class="header-sep"></span>
     <span class="subbrand">MVR Export</span>
     <span class="header-spacer"></span>
-    <span class="version-string">v0.4.0 &middot; DIN SPEC 15801 &middot; MVR 1.6</span>
+    <span class="version-string">v0.5.0 &middot; DIN SPEC 15801 &middot; MVR 1.6</span>
     <span class="icon ic-18 ic-blue200" data-icon="settings-2" title="Einstellungen"></span>
   </header>
 
@@ -330,6 +330,21 @@
     </div>
     <div id="share-results" class="share-results"></div>
     <div id="share-search-hint" class="modal-hint">Verbindung zum GDTF Share erforderlich.</div>
+  </div>
+</div>
+
+<!-- ══ Modal: GDTF aus Bibliothek wählen ══ -->
+<div id="modal-lib-browse" class="modal-overlay hidden">
+  <div class="modal-card modal-card-lg">
+    <button type="button" class="modal-close" data-modal-close="modal-lib-browse">
+      <span class="icon ic-20 ic-muted" data-icon="x"></span>
+    </button>
+    <h3 class="modal-title">Aus der Bibliothek w&auml;hlen</h3>
+    <div id="lib-browse-type" class="modal-subtitle"></div>
+    <div class="modal-field">
+      <input id="lib-browse-input" type="text" class="modal-search-input" placeholder="Bibliothek filtern&hellip;" />
+    </div>
+    <div id="lib-browse-results" class="share-results"></div>
   </div>
 </div>
 

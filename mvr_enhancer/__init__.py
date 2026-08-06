@@ -11,7 +11,7 @@ Bibliotheksordner oder einem MVR koennte damit per Entity-Expansion
 laeuft, greift der Schutz hier ueberall.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 try:
     import warnings as _warnings

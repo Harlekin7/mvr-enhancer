@@ -789,6 +789,7 @@ input.sel-dark:focus { border-color: var(--blue-400); }
   text-transform: uppercase;
   color: var(--white);
 }
+.modal-subtitle { margin: -6px 0 12px; font-size: 13px; color: var(--text-inverse-muted); }
 .modal-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .modal-label {
   font-family: var(--font-heading);
