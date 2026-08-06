@@ -37,7 +37,7 @@ In der Quellen-Leiste von Schritt 2 schaltest du zwischen zwei Modi um:
 - Ein Modus mit 0 Kanälen deaktiviert die Kollisionsprüfung für diesen Typ.
 - Bei Überschreiten der ZIP-Schutzlimits wird die Szene gekürzt (Schutz vor manipulierten Dateien).
 - Ein MVR-Import kann vorhandene grandMA3-Show-Layer nicht löschen — leere Layer in einer bestehenden Show stammen aus früheren Importen und müssen dort manuell entfernt werden.
-- Backlog (noch nicht enthalten): Score-Legende-Tooltip, Detailansicht der Adress-Kollision, „Overrides teilen", „Diff zum letzten Export".
+- Backlog (noch nicht enthalten): Detailansicht der Adress-Kollision. („Overrides teilen" und „Diff zum letzten Export" sind bewusst gestrichen.)
 
 ## Entwicklung
 
