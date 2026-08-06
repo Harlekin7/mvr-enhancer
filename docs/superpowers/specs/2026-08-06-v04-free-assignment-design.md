@@ -21,12 +21,143 @@ Bestandsaufnahme bestätigt zwei Lücken:
    Kandidaten landet), zeigt `modeCellHtml` nur den einen initialen Modus
    (`channel_count: 0`) — der Nutzer kann den Modus nicht wechseln.
 
+## Problem 2 (Nutzer-Report, nachgereicht)
+
+„Der Ladebalken ist extrem fern ab von der Realität, es dauert meist 10–20
+Sekunden … Sowohl MVR laden als auch GDTFs downloaden scheint langsam,
+meistens kommt das ‚konnte nicht geladen werden'-Popup und kurz danach ist
+es dann doch geladen."
+
+Analyse:
+
+- Der Balken animiert zeitbasiert in 1 s auf 90 % und steht dann — bei
+  realen 10–20 s Ladezeit wirkt er kaputt. Der langsame Teil ist das
+  Entpacken der eingebetteten Dateien in `_read_mvr_archive` (pro Eintrag
+  `zf.read`) plus das Score-Matching.
+- Das Popup ist der 30-s-UI-Watchdog: Er misst Gesamtdauer statt Stille.
+  Die JS-Seite re-armiert den Watchdog zwar bereits bei jedem
+  progress-Event (`onEvent`-progress-Case ruft `armWatchdog`), aber
+  während der eigentlichen Arbeit kommen KEINE Events — bei `load_mvr`
+  nur das eine Start-Event, bei `share_download` gar keins. Überschreitet
+  die Arbeit 30 s, feuert der Watchdog, obwohl alles läuft; der Erfolg
+  trifft danach ein.
+
 ## Ziel
 
-Jede Matching-Zeile erlaubt (a) die Auswahl JEDER GDTF aus der lokalen
-Bibliothek und (b) den Sprung ins Share-Suchmodal — unabhängig davon, ob
-und wie viele Kandidaten es gibt. Die Modus-Auswahl zeigt immer die volle
-Modusliste der zugeordneten GDTF. Release **v0.4.0**.
+1. Jede Matching-Zeile erlaubt (a) die Auswahl JEDER GDTF aus der lokalen
+   Bibliothek und (b) den Sprung ins Share-Suchmodal — unabhängig davon, ob
+   und wie viele Kandidaten es gibt. Die Modus-Auswahl zeigt immer die volle
+   Modusliste der zugeordneten GDTF.
+2. Der Ladebalken folgt dem ECHTEN Fortschritt (Entpacken → Matching), und
+   der Watchdog feuert nur noch nach 30 s STILLE statt 30 s Gesamtdauer —
+   getragen von periodischen Fortschritts-Events aus Reader und Downloader.
+
+Release **v0.4.0**.
+
+## Problem 3 (Nutzer-Report, nachgereicht)
+
+Screenshot Schritt 3: „10 Fixtures entfernt · 2 offene Typen" — dabei SIND
+die 2 offenen Typen genau diese 10 Fixtures. Die Zählung ist intern
+konsistent (offene Typen werden beim Export entfernt und zählen deshalb in
+beiden Angaben), aber für den Nutzer unlesbar: „offen" (vergessen?) und
+„bewusst entfernt" sind nicht unterscheidbar, und es gibt in der UI keinen
+direkten Weg, einen Typ AKTIV zu entfernen (`set_removed(true)` hat keinen
+Auslöser — der `removed`-Zustand ist nur über „Doch zuordnen" verlassbar).
+
+## F4 — Dropdown-Zustände: „nicht zugeordnet" vs. „aktiv entfernt"
+
+Das GDTF-Select jeder Zeile führt ZWEI Sonder-Einträge vor den Gruppen:
+
+1. `— nicht zugeordnet —` (value `""`): Zustand „offen"; beim Export wird
+   der Typ entfernt UND als offener Typ in der Bereinigungsliste genannt
+   (Bestandsverhalten). Selektiert, wenn `!assignment.gdtf_name &&
+   !assignment.removed`.
+2. `— aktiv entfernt —` (value `"__removed__"`): Zustand „bewusst
+   entfernt"; beim Export entfernt, erscheint NICHT als offener Typ.
+   Selektiert, wenn `assignment.removed`.
+
+Verhalten:
+
+- Der bisherige removed-Sonderzustand der Zelle (durchgestrichenes „wird
+  entfernt" + „Doch zuordnen"-Button) entfällt — auch entfernte Typen
+  zeigen das normale Select (mit `— aktiv entfernt —` selektiert) plus
+  Globus-Button. Der `btn-reassign`-Delegationszweig in app.js wird
+  entfernt.
+- Change-Handler: value `"__removed__"` → `callApi("set_removed", key,
+  true)`; value `""` → `callApi("set_gdtf", key, "")` (Bestand; `set_gdtf`
+  erzeugt `Assignment()` mit `removed=False` — verlässt den
+  Entfernt-Zustand); sonst `set_gdtf(key, value)` (erzeugt ebenfalls
+  `removed=False` — Zuordnen verlässt den Entfernt-Zustand, Bestand).
+- Der Sentinel-Wert `"__removed__"` ist rein UI-seitig; er erreicht das
+  Backend nie (der Handler verzweigt vorher). Kollisionsrisiko mit echten
+  GDTF-Namen: praktisch null, dennoch prüft der Handler den Sentinel VOR
+  dem set_gdtf-Zweig.
+- Score-/Quelle-/Modus-Zellen im removed-Zustand: wie bisher („–", Badge
+  „entfernt", „—").
+- Tooltips: `— aktiv entfernt —`-Option braucht keinen eigenen title; das
+  Quelle-Badge „entfernt" erklärt die Konsequenz bereits (v0.3-Tooltip).
+- Die Backend-Zählung (`_compute_cleanup_preview`, `open_count`) bleibt
+  unverändert — sie unterscheidet bereits korrekt; mit dem neuen UI-Weg
+  kann der Nutzer die 2 „offenen" Typen nun aktiv auf „entfernt" stellen,
+  womit die verwirrende Doppelnennung verschwindet.
+
+## F2 — Echter Ladefortschritt + stiller Watchdog
+
+### Reader-Callback
+
+`read_mvr(path, progress=None)` und `_read_mvr_archive(zf, path, progress)`:
+`progress` ist ein optionales Callable `(done: int, total: int) -> None`,
+aufgerufen einmal vor der Schleife (`0, total`) und nach jedem gelesenen
+Archiv-Eintrag (`done, total`; `total` = Anzahl der zu lesenden Einträge).
+Kein Callback → Verhalten wie heute. Exceptions aus dem Callback werden im
+Reader NICHT gefangen (der Api-Callback fängt selbst; der Reader bleibt
+schlank). `run_export`s `read_mvr`-Aufruf bleibt ohne Callback.
+
+### Api: Fortschritts-Events
+
+- `_do_load_mvr` übergibt einen Callback, der gedrosselt (nur wenn der
+  Prozentwert um ≥ 3 Punkte gestiegen ist ODER ≥ 500 ms seit dem letzten
+  Event vergangen sind; Exceptions intern gefangen + geloggt) Events pusht:
+  `{"type": "progress", "method": "load_mvr", "data": {"phase": "read", "percent": P}}`
+  mit P = 5 + (done/total) × 70 (also 5–75 %; total==0 → direkt 75).
+- Nach dem Lesen, vor Aggregation/Matching:
+  `{"phase": "match", "percent": 80}`; nach dem Kandidaten-Aufbau:
+  `{"phase": "match", "percent": 95}`. Das bestehende Start-Event
+  (`{"phase": "start"}`) bleibt die erste Emission.
+- `GdtfShareClient._request(..., progress=None)` reicht einen Callback
+  `(downloaded_bytes: int, total_bytes: int) -> None` in die Chunk-Schleife
+  (`total_bytes` aus dem `Content-Length`-Header, 0 wenn unbekannt);
+  `download(...)` bekommt denselben optionalen Parameter und reicht durch.
+  `_do_share_download` emittiert gedrosselt (gleiche Regel)
+  `{"type": "progress", "method": "share_download", "data": {"percent": P}}`
+  (P aus Bytes, bei unbekanntem total: pulsierende Aktivitäts-Events mit
+  `"percent": null` — sie dienen dann nur dem Watchdog).
+
+### UI (app.js)
+
+- `dzStart()` wie bisher (Klasse, Titel „Lade …"), aber die Füllung kriecht
+  initial nur auf 15 % in 2 s (statt 90 % in 1 s) — Fallback für sehr
+  kleine Dateien, deren Events sofort durchlaufen.
+- Neue Funktion `dzProgress(percent)`: setzt die Füllung monoton (kleinere
+  Werte werden ignoriert) per `transform: scaleX(percent/100)` mit
+  `transition: transform 400ms linear`. Deckel bei 95 % — 100 % gibt es
+  nur über `dzFinish`.
+- `onEvent`-progress-Case: `load_mvr`-Events mit `data.percent` →
+  `dzProgress`; Events mit `phase:"start"` → `dzStart` (Bestand).
+  Watchdog-Re-Arm-Regel erweitert: re-armiert wird bei JEDEM progress-Event
+  eines Methods, das in `WATCHDOG_ARM_ON_PROGRESS` steht ODER dessen
+  Watchdog gerade pendent ist (deckt `share_download` ab, dessen Watchdog
+  beim Aufruf armiert wird).
+- Suchmodal: Während eines Downloads zeigt der Download-Button des
+  betroffenen Ergebnisses den Prozentwert („lädt … 42 %", bei
+  `percent: null` unverändert „lädt …") — `searchModal.downloadPercent`
+  wird aus den `share_download`-progress-Events gespeist und beim
+  Abschluss/Fehler zurückgesetzt.
+- Erfolgs-/Fehler-/Min-1-s-Choreografie: unverändert (v0.2-Verhalten).
+
+Damit verschwindet der Fehlalarm konstruktiv: Solange Entpacken oder
+Download Fortschritt melden, wird der 30-s-Timer immer wieder neu gestellt;
+er feuert nur noch, wenn wirklich 30 s lang nichts passiert.
 
 ## Nicht-Ziele
 
@@ -114,6 +245,16 @@ letztes Sicherheitsnetz, wenn auch `assigned_modes` leer ist.
 
 ## Tests
 
+- Reader: `read_mvr` mit progress-Callback → Aufruffolge `(0, N)` …
+  `(N, N)` bei N eingebetteten Einträgen; ohne Callback unverändert.
+- Api: `load_mvr` emittiert progress-Events mit aufsteigendem `percent`
+  (Drossel-Regel: im Sync-Test genügt „mindestens start, ≥1 read-Event,
+  match 80/95"); `share_download` emittiert percent-Events (Share-Client
+  mit Fake-Response testen, wie die bestehenden share-Tests).
+- `GdtfShareClient._request`/`download`: progress-Callback erhält
+  monoton wachsende `downloaded_bytes` und das Content-Length-Total.
+- F4: `set_removed(True)`-Pfad bleibt wie getestet; UI-seitig Review +
+  Smoke (JS). Backend-Zählung unverändert (Bestandstests decken sie).
 - `get_state`: `library.files` alphabetisch (casefold) und vollständig;
   `assigned_modes` (a) für Kandidaten-Zuordnung = Kandidaten-Modi, (b) für
   Nicht-Kandidaten-Bibliotheks-Zuordnung = volle Modi aus der Bibliothek,
