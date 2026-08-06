@@ -59,6 +59,7 @@
     downloadingRid: null,
     downloadPercent: null,
   };
+  var libModal = { typeKey: null, typeName: "", filter: "" };
 
   // ──── Small helpers ────
 
@@ -601,6 +602,44 @@
     );
   }
 
+  function openLibModal(typeKey, typeName) {
+    libModal.typeKey = typeKey;
+    libModal.typeName = typeName;
+    libModal.filter = "";
+    $("lib-browse-input").value = "";
+    $("lib-browse-type").textContent = typeName;
+    renderLibModal();
+    openModal("modal-lib-browse");
+    $("lib-browse-input").focus();
+  }
+
+  function renderLibModal() {
+    var el = $("lib-browse-results");
+    var files = (serverState && serverState.library && serverState.library.files) || [];
+    if (!files.length) {
+      el.innerHTML = '<div class="muted-text">Keine GDTFs in der Bibliothek &mdash; Ordner w&auml;hlen oder im Share suchen.</div>';
+      return;
+    }
+    var filter = libModal.filter.toLowerCase();
+    var type = (serverState.types || []).find(function (t) { return t.key === libModal.typeKey; });
+    var current = type && type.assignment && !type.assignment.removed ? type.assignment.gdtf_name : "";
+    var rows = files
+      .filter(function (name) { return !filter || name.toLowerCase().indexOf(filter) !== -1; })
+      .map(function (name) {
+        var isCurrent = name === current;
+        return (
+          '<div class="recent-row lib-row" data-name="' + esc(name) + '">' +
+          iconSpanHtml("file-box", "ic-16 ic-blue300") +
+          '<span class="recent-name">' + esc(name) + "</span>" +
+          (isCurrent ? '<span class="badge tone-ondark">aktuell</span>' : "") +
+          "</div>"
+        );
+      });
+    el.innerHTML = rows.length
+      ? rows.join("")
+      : '<div class="muted-text">Kein Treffer f&uuml;r deinen Filter.</div>';
+  }
+
   // ──── Master render ────
 
   function render() {
@@ -842,27 +881,16 @@
         ">" + esc(c.gdtf_name) + "</option>"
       );
     });
-    var libraryOptions = [];
-    (libraryFiles || []).forEach(function (name) {
-      if (candidateNames[name]) return;
-      libraryOptions.push(
-        '<option value="' + esc(name) + '"' +
-        (name === selectedName ? " selected" : "") +
-        ">" + esc(name) + "</option>"
-      );
-    });
     var options = [
       '<option value=""' + (!assignment.removed && !assignment.gdtf_name ? " selected" : "") +
       ">&mdash; nicht zugeordnet &mdash;</option>",
       '<option value="' + REMOVED_SENTINEL + '"' + (assignment.removed ? " selected" : "") +
       ">&mdash; aktiv entfernt &mdash;</option>"
     ];
-    var assignedKnown = selectedName &&
-      (candidateNames[selectedName] ||
-        (libraryFiles || []).indexOf(selectedName) !== -1);
+    // Deckt jetzt regulaer auch Picker-/Bibliothek-Zuordnungen ab (kein
+    // Kandidat aus dem Matching) — nicht mehr nur den Share-Sonderfall.
+    var assignedKnown = selectedName && candidateNames[selectedName];
     if (selectedName && !assignedKnown) {
-      // Sicherheitsnetz: Zuordnung, die weder Kandidat noch Bibliothek kennt
-      // (z. B. Bibliothek nach Share-Download noch nicht neu geladen).
       options.push(
         '<option value="' + esc(selectedName) + '" selected>' +
         esc(selectedName) + "</option>"
@@ -871,14 +899,15 @@
     if (candidateOptions.length) {
       options.push('<optgroup label="Vorschl&auml;ge">' + candidateOptions.join("") + "</optgroup>");
     }
-    if (libraryOptions.length) {
-      options.push('<optgroup label="Gesamte Bibliothek">' + libraryOptions.join("") + "</optgroup>");
-    }
     var selectTitle = selectedName ? ' title="' + esc(selectedName) + '"' : "";
     return (
       '<div class="gdtf-cell">' +
       '<select class="sel-dark sel-gdtf" data-type-key="' + esc(type.key) + '"' + selectTitle + '>' +
       options.join("") + "</select>" +
+      '<button type="button" class="btn-share-ico btn-lib-browse" data-type-key="' + esc(type.key) +
+      '" data-type-name="' + esc(type.name) + '" title="Aus der Bibliothek w&auml;hlen">' +
+      iconSpanHtml("book-open", "ic-15 ic-blue300") +
+      "</button>" +
       '<button type="button" class="btn-share-ico btn-share-search" data-type-key="' + esc(type.key) +
       '" data-type-name="' + esc(type.name) + '" title="Im GDTF Share suchen">' +
       iconSpanHtml("globe", "ic-15 ic-blue300") +
@@ -1209,6 +1238,11 @@
       }
     });
     tbody.addEventListener("click", function (e) {
+      var libBtn = e.target.closest(".btn-lib-browse");
+      if (libBtn) {
+        openLibModal(libBtn.dataset.typeKey, libBtn.dataset.typeName);
+        return;
+      }
       var searchBtn = e.target.closest(".btn-share-search");
       if (searchBtn) {
         openSearchModal(searchBtn.dataset.typeKey, searchBtn.dataset.typeName);
@@ -1270,6 +1304,18 @@
       var btn = e.target.closest(".btn-share-download");
       if (!btn || btn.disabled) return;
       downloadShareResult(Number(btn.dataset.rid));
+    });
+
+    // Modals — library picker
+    $("lib-browse-input").addEventListener("input", function (e) {
+      libModal.filter = e.target.value || "";
+      renderLibModal();
+    });
+    $("lib-browse-results").addEventListener("click", function (e) {
+      var row = e.target.closest(".lib-row");
+      if (!row || !libModal.typeKey) return;
+      callApi("set_gdtf", libModal.typeKey, row.dataset.name);
+      closeModal("modal-lib-browse");
     });
 
     // Modals — generic close (X button, overlay click, ESC)
