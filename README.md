@@ -9,7 +9,7 @@ Windows-Desktop-App, die ein aus Vectorworks exportiertes MVR pro Fixture-Typ mi
 Der Workflow läuft in drei Schritten, die du als Akkordeon durchgehst:
 
 1. **Quelle** — MVR-Datei auf die Ablagefläche ziehen oder klicken, um sie per Dateidialog zu wählen (alternativ aus der Zuletzt-Liste). Während des Ladens zeigt die Ablagefläche einen kurzen Fortschrittsbalken. Du siehst Datei-Kennzahlen (Fixtures, Fixture-Typen, 3D-Meshes, Positionen) und eine kurze Sicherheitsprüfung.
-2. **Matching** — jeder Fixture-Typ bekommt score-basierte GDTF-Vorschläge aus deiner lokalen Bibliothek und (optional) GDTF Share. Du wählst pro Typ die passende GDTF-Datei und den DMX-Modus — oder entfernst den Typ ganz aus dem Export. Du hast immer das letzte Wort. In der Quellen-Leiste stellst du außerdem den Export-Modus ein (siehe [Export-Modi](#export-modi)).
+2. **Matching** — jeder Fixture-Typ bekommt score-basierte GDTF-Vorschläge aus deiner lokalen Bibliothek und (optional) GDTF Share. Du wählst pro Typ die passende GDTF-Datei und den DMX-Modus — oder entfernst den Typ ganz aus dem Export. Du hast immer das letzte Wort. Der Fortschrittsbalken während des Ladens zeigt dabei echten Fortschritt. Im GDTF-Dropdown findest du Vorschläge oben und unter „Gesamte Bibliothek" alle GDTFs aus deinem Ordner; mit dem Globus-Button daneben springst du direkt in die GDTF-Share-Suche. Über „— aktiv entfernt —" kannst du einen Typ bewusst ausschließen (z. B. Plugboxen), während „— nicht zugeordnet —" bedeutet, dass die Zuordnung noch offen ist — wird beim Export ebenfalls entfernt, taucht aber als offener Punkt in der Bereinigungsliste auf. In der Quellen-Leiste stellst du außerdem den Export-Modus ein (siehe [Export-Modi](#export-modi)).
 3. **Export** — vor dem Export siehst du offene Warnungen (fehlende Zuordnungen, Modus-Fallbacks, Adress-Kollisionen) und eine Vorschau der Bereinigung. Der Export schreibt ein neues MVR: Gift-Elemente (`CustomCommands`, `Position`) entfernt, verwaiste GDTFs ausgeschlossen, Layer nach Position neu organisiert.
 
 ## Export-Modi
@@ -30,7 +30,7 @@ In der Quellen-Leiste von Schritt 2 schaltest du zwischen zwei Modi um:
 - In der Quellen-Leiste (Schritt 2) wählst du einen lokalen Ordner mit GDTF-Dateien als Bibliothek. Der Ordner wird gescannt, die Fixtures stehen danach als Score-Vorschläge zur Verfügung.
 - Optional kannst du dich mit deinem [GDTF Share](https://www.gdtf-share.com/)-Account anmelden, um fehlende Fixtures direkt zu suchen und in deine Bibliothek zu laden — ohne den Umweg über den Browser.
 
-## Bekannte Grenzen (v0.3.0)
+## Bekannte Grenzen (v0.4.0)
 
 - Fixtures mit mehreren DMX-Breaks werden aktuell als Single-Break gelesen — die Adress-Kollisionsprüfung kann Kollisionen dadurch unterschätzen.
 - Ein Footprint, der über eine 512-Kanal-Universumsgrenze reicht, wird vollständig dem Start-Universum zugerechnet.

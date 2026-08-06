@@ -9,6 +9,7 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 import zipfile
 import zlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import defusedxml.ElementTree as SafeET
@@ -222,7 +223,10 @@ _MVR_READ_ERRORS = (
 )
 
 
-def read_mvr(path: str) -> MvrScene:
+def read_mvr(
+    path: str,
+    progress: Callable[[int, int], None] | None = None,
+) -> MvrScene:
     """Liest ein MVR-Archiv und parst die GeneralSceneDescription.
 
     Fehlervertrag: gibt bei JEDEM Defekt der Datei eine leere ``MvrScene``
@@ -234,6 +238,10 @@ def read_mvr(path: str) -> MvrScene:
 
     Args:
         path: Pfad zur .mvr Datei.
+        progress: Optionaler Callback ``(done, total)`` fuer den Fortschritt
+            beim Lesen der Archiv-Eintraege (siehe ``_read_mvr_archive``).
+            Exceptions aus dem Callback werden NICHT gefangen — sie laufen
+            durch bis zum Aufrufer von ``read_mvr``.
 
     Returns:
         MvrScene mit geparsten Fixtures, Nicht-Fixture-Elementen und
@@ -250,27 +258,47 @@ def read_mvr(path: str) -> MvrScene:
 
     try:
         with zf:
-            return _read_mvr_archive(zf, path)
+            return _read_mvr_archive(zf, path, progress)
     except _MVR_READ_ERRORS as e:
         log.error("MVR-Datei konnte nicht gelesen werden: %s — %s: %s",
                   path, type(e).__name__, e)
         return MvrScene()
 
 
-def _read_mvr_archive(zf: zipfile.ZipFile, path: str) -> MvrScene:
+def _read_mvr_archive(
+    zf: zipfile.ZipFile,
+    path: str,
+    progress: Callable[[int, int], None] | None = None,
+) -> MvrScene:
     """Liest eingebettete Dateien und die Szenen-XML aus einem offenen Archiv.
 
     Darf werfen — ``read_mvr`` uebersetzt alles in den Fehlervertrag
     (leere Szene). Bewusst ausgelagert, damit der ``try``-Block in ``read_mvr``
     den GESAMTEN Lesevorgang umschliesst und nicht nur den ZIP-Aufbau.
+
+    Fortschritts-Vertrag von ``progress``: einmal ``(0, total)`` vor der
+    Schleife, danach ``(done, total)`` nach JEDEM Eintrag der Namensliste —
+    auch wenn der Eintrag durch einen ``continue``-Zweig (unsicherer Name,
+    Groessenlimit) uebersprungen wird. ``total`` ist konstant die Laenge von
+    ``names`` (``zf.namelist()``), also VOR jeglicher Filterung. Bricht die
+    Schleife per ``break`` ab (Datei- oder Gesamt-Extraktionslimit), endet die
+    Aufrufreihe folgerichtig VOR ``(total, total)`` — das ist kein Fehler,
+    sondern der erwartete Randfall bei abgebrochenem Lesevorgang. Exceptions
+    aus ``progress`` werden hier bewusst NICHT gefangen.
     """
     scene = MvrScene()
 
     # Alle eingebetteten Dateien lesen (mit ZIP-Bomb-Schutz)
     total_extracted = 0
     file_count = 0
-    for name in zf.namelist():
+    names = zf.namelist()
+    total = len(names)
+    if progress is not None:
+        progress(0, total)
+    for index, name in enumerate(names, start=1):
         if name == "GeneralSceneDescription.xml":
+            if progress is not None:
+                progress(index, total)
             continue
         if _is_unsafe_entry_name(name):
             log.warning(
@@ -278,6 +306,8 @@ def _read_mvr_archive(zf: zipfile.ZipFile, path: str) -> MvrScene:
                 "uebersprungen: %s",
                 name,
             )
+            if progress is not None:
+                progress(index, total)
             continue
         file_count += 1
         if file_count > _MAX_EMBEDDED_FILE_COUNT:
@@ -294,6 +324,8 @@ def _read_mvr_archive(zf: zipfile.ZipFile, path: str) -> MvrScene:
                 "(%d bytes > %d bytes)",
                 name, info.file_size, _MAX_EMBEDDED_FILE_SIZE,
             )
+            if progress is not None:
+                progress(index, total)
             continue
         if total_extracted + info.file_size > _MAX_TOTAL_EXTRACTED_SIZE:
             log.warning(
@@ -305,6 +337,8 @@ def _read_mvr_archive(zf: zipfile.ZipFile, path: str) -> MvrScene:
         data = zf.read(name)
         total_extracted += len(data)
         scene.embedded_files[name] = data
+        if progress is not None:
+            progress(index, total)
 
     # XML parsen
     xml_name = "GeneralSceneDescription.xml"

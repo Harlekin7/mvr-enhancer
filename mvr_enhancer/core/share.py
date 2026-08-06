@@ -19,6 +19,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from http.cookiejar import CookieJar
 
 from mvr_enhancer.core.constants import MAX_GDTF_DOWNLOAD_SIZE
@@ -61,6 +62,7 @@ class GdtfShareClient:
         slug: str,
         params: dict | None = None,
         data: dict | None = None,
+        progress: Callable[[int, int], None] | None = None,
     ) -> tuple[int, bytes, str]:
         """Fuehrt einen HTTP-Request gegen die GDTF Share API aus.
 
@@ -93,6 +95,11 @@ class GdtfShareClient:
         automatisch ergaenzen, wenn er fehlt (``Lib/urllib/request.py``,
         ``do_request_``); er wird hier trotzdem explizit gesetzt, damit das
         Verhalten unabhaengig vom Handler-Verhalten selbsterklaerend bleibt.
+
+        ``progress``, falls gesetzt, wird nach jedem gelesenen Chunk mit
+        ``(downloaded_bytes, total_bytes)`` aufgerufen; ``total_bytes`` stammt
+        aus dem ``Content-Length``-Header der Antwort und ist ``0``, wenn er
+        fehlt oder nicht parsbar ist (unbekannte Gesamtgroesse).
         """
         url = f"{GDTF_SHARE_BASE}/{slug}"
         if params:
@@ -105,6 +112,10 @@ class GdtfShareClient:
         try:
             with self._opener.open(req, timeout=30) as resp:
                 disposition = resp.headers.get("Content-Disposition", "")
+                try:
+                    total_bytes = int(resp.headers.get("Content-Length") or 0)
+                except ValueError:
+                    total_bytes = 0
                 chunks = []
                 downloaded = 0
                 while True:
@@ -113,6 +124,8 @@ class GdtfShareClient:
                         break
                     chunks.append(chunk)
                     downloaded += len(chunk)
+                    if progress is not None:
+                        progress(downloaded, total_bytes)
                     if downloaded > MAX_GDTF_DOWNLOAD_SIZE:
                         break
                 return resp.status, b"".join(chunks), disposition
@@ -312,7 +325,12 @@ class GdtfShareClient:
     # ──── Download ────
 
     def download(
-        self, rid: int, library_dir: str, *, allow_retry: bool = True,
+        self,
+        rid: int,
+        library_dir: str,
+        *,
+        allow_retry: bool = True,
+        progress: Callable[[int, int], None] | None = None,
     ) -> GdtfFixture | None:
         """Laedt eine Fixture-Datei herunter und importiert sie in die Bibliothek.
 
@@ -325,6 +343,10 @@ class GdtfShareClient:
         Relogin nach HTTP 401 als reiner Aufruf-Zustand. Der Download laeuft
         bewusst NICHT unter ``self._lock``: ``_relogin()`` nimmt denselben
         Lock und wuerde sich selbst blockieren.
+
+        ``progress`` wird ausschliesslich an den eigentlichen Download-
+        Request durchgereicht — nicht an einen etwaigen Relogin-Request:
+        dessen Antwort hat keinen fuer die UI relevanten Fortschritt.
         """
         if not self.logged_in:
             self.last_error = "Nicht eingeloggt"
@@ -335,7 +357,7 @@ class GdtfShareClient:
 
         try:
             status, body, disposition = self._request(
-                "GET", "downloadFile.php", params={"rid": rid},
+                "GET", "downloadFile.php", params={"rid": rid}, progress=progress,
             )
         except OSError as e:
             self.last_error = str(e)
@@ -344,7 +366,7 @@ class GdtfShareClient:
 
         if status == 401 and allow_retry:
             if self._relogin():
-                return self.download(rid, library_dir, allow_retry=False)
+                return self.download(rid, library_dir, allow_retry=False, progress=progress)
             self.last_error = "Session abgelaufen, Relogin fehlgeschlagen"
             return None
 

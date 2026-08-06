@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import threading
+import time
 from datetime import datetime
 
 import webview
@@ -221,6 +222,48 @@ class Api:
         thread.start()
         return {"ok": True, "data": {"started": True}}
 
+    def _make_progress_emitter(self, method: str, to_percent):
+        """Baut einen gedrosselten progress-Callback fuer Hintergrund-Threads.
+
+        ``to_percent(done, total) -> int | None`` mappt Rohwerte auf Prozent.
+        Drossel: Event nur, wenn der Prozentwert um >= 3 Punkte gestiegen ist
+        ODER >= 0.5 s seit dem letzten Event vergangen sind. Ein ``None``-
+        Prozentwert (unbekannte Gesamtgroesse, z. B. ``share_download`` ohne
+        Content-Length) hat keinen Sprung, den die Drossel messen koennte,
+        und laeuft daher rein zeitgedrosselt (sonst wuerde jeder 64-KiB-Chunk
+        ungedrosselt ein Event ausloesen — bei einem 15-MB-Download ohne
+        Content-Length-Header waeren das ~230 Events an die UI). Exceptions
+        werden gefangen — ein UI-Event darf nie das Laden abbrechen.
+
+        Der zurueckgegebene Callback wird von ``read_mvr``/``GdtfShareClient``
+        aus einem Hintergrund-Thread aufgerufen (Produktionsmodus): ``state``
+        ist ein reines Closure-Dict pro Aufruf-Instanz, ``self._emit`` selbst
+        ist bereits thread-sicher (``evaluate_js`` bzw. ``self.events.append``
+        im Testmodus) — es gibt hier keinen geteilten, unter Lock stehenden
+        Zustand zu schuetzen.
+        """
+        state = {"last_percent": -100, "last_ts": 0.0}
+
+        def _emit_progress(done: int, total: int) -> None:
+            try:
+                percent = to_percent(done, total)
+                now = time.monotonic()
+                if (percent is None or percent < state["last_percent"] + 3) \
+                        and now - state["last_ts"] < 0.5:
+                    return
+                state["last_percent"] = percent if percent is not None else state["last_percent"]
+                state["last_ts"] = now
+                self._emit({
+                    "type": "progress",
+                    "method": method,
+                    "data": {"phase": "read", "percent": percent} if method == "load_mvr"
+                    else {"percent": percent},
+                })
+            except Exception:
+                log.exception("Fortschritts-Event fehlgeschlagen")
+
+        return _emit_progress
+
     # ──── Auto-Login ────
 
     def _auto_login(self) -> None:
@@ -245,6 +288,16 @@ class Api:
                 for fixture_type in self._types:
                     assignment = self._assignments.get(fixture_type.key) or Assignment()
                     candidates = self._candidates.get(fixture_type.key, [])
+                    if assignment.gdtf_name:
+                        assigned_candidate = self._find_candidate(
+                            fixture_type.key, assignment.gdtf_name
+                        )
+                        if assigned_candidate is not None:
+                            assigned_modes = [dict(m) for m in assigned_candidate.modes]
+                        else:
+                            assigned_modes = self._modes_from_library(assignment.gdtf_name)
+                    else:
+                        assigned_modes = []
                     types_out.append(
                         {
                             "key": fixture_type.key,
@@ -256,6 +309,7 @@ class Api:
                             "existing_mode": fixture_type.existing_mode,
                             "candidates": [serialize(c) for c in candidates],
                             "assignment": serialize(assignment),
+                            "assigned_modes": assigned_modes,
                         }
                     )
                     if assignment.removed:
@@ -291,6 +345,7 @@ class Api:
                     "library": {
                         "dir": self._library_dir,
                         "count": len(self._gdtf_library),
+                        "files": sorted(self._gdtf_library.keys(), key=str.casefold),
                     },
                     "recent": recent,
                     "warnings": copy.deepcopy(self._warnings),
@@ -399,10 +454,15 @@ class Api:
         if not path or not os.path.isfile(path):
             return {"ok": False, "error": "Diese Datei wurde nicht gefunden. Pruef bitte den Pfad."}
 
-        scene = read_mvr(path)
+        emit_read_progress = self._make_progress_emitter(
+            "load_mvr",
+            lambda done, total: 75 if not total else 5 + int(done / total * 70),
+        )
+        scene = read_mvr(path, progress=emit_read_progress)
         if scene.xml_root is None:
             return {"ok": False, "error": "Diese Datei ist keine gueltige MVR-Datei."}
 
+        self._emit({"type": "progress", "method": "load_mvr", "data": {"phase": "match", "percent": 80}})
         types = aggregate_fixture_types(scene)
         stats = compute_stats(scene, types)
 
@@ -446,6 +506,8 @@ class Api:
                     source="library",
                 )
             assignments[fixture_type.key] = assignment
+
+        self._emit({"type": "progress", "method": "load_mvr", "data": {"phase": "match", "percent": 95}})
 
         file_stat = os.stat(path)
         file_meta = {
@@ -741,7 +803,11 @@ class Api:
         if not library_dir:
             return {"ok": False, "error": "Du hast noch keinen GDTF-Bibliotheksordner eingestellt."}
 
-        fixture = self._share.download(rid, library_dir)
+        emit_dl_progress = self._make_progress_emitter(
+            "share_download",
+            lambda done, total: int(done / total * 100) if total else None,
+        )
+        fixture = self._share.download(rid, library_dir, progress=emit_dl_progress)
         if fixture is None:
             return {"ok": False, "error": self._share.last_error or "Download fehlgeschlagen."}
 

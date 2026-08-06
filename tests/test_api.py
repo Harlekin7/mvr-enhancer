@@ -13,6 +13,8 @@ import os
 import zipfile
 from xml.etree import ElementTree as ET
 
+import pytest
+
 from mvr_enhancer import api as api_module
 from mvr_enhancer.api import Api
 from mvr_enhancer.settings import Settings
@@ -273,6 +275,72 @@ def test_load_mvr_emits_progress_start_event(tmp_path):
         if e.get("type") == "progress" and e.get("method") == "load_mvr"
     ]
     assert progress and progress[0]["data"]["phase"] == "start"
+
+
+# ──── test_load_mvr_emits_read_and_match_progress (v0.4 Task 4) ────
+
+
+def test_load_mvr_emits_read_and_match_progress(tmp_path):
+    api = _make_api(tmp_path)
+    mvr = build_mvr(
+        tmp_path / "p.mvr",
+        fixtures=[{"name": "Spot 1", "address": 1}],
+        embedded={"mesh1.glb": b"x" * 10},
+    )
+
+    api.load_mvr(str(mvr))
+
+    progress = [
+        e["data"] for e in api.events
+        if e.get("type") == "progress" and e.get("method") == "load_mvr"
+    ]
+    phases = [p.get("phase") for p in progress]
+    assert phases[0] == "start"
+    assert "match" in phases
+    percents = [p["percent"] for p in progress if p.get("percent") is not None]
+    assert percents == sorted(percents), "percent muss monoton steigen"
+    assert percents and percents[-1] == 95
+
+
+# ──── test_progress_emitter_throttle_skip_path (v0.4 Task 4 Fix) ────
+
+
+def test_progress_emitter_throttle_skip_path(tmp_path, monkeypatch):
+    """Deckt den bislang ungetesteten Skip-Pfad der Drossel ab (nicht nur den Happy-Path).
+
+    Regression: bei ``percent=None`` (unbekannte Gesamtgroesse, z. B.
+    ``share_download`` ohne Content-Length) griff die Drossel frueher nie —
+    jeder 64-KiB-Chunk erzeugte ungedrosselt ein Event. Jetzt laeuft ein
+    ``None``-Prozentwert rein zeitgedrosselt (>= 0.5 s zwischen Events).
+    """
+    api = _make_api(tmp_path)
+    fake_now = {"t": 100.0}
+    monkeypatch.setattr(api_module.time, "monotonic", lambda: fake_now["t"])
+
+    # (a) Zwei schnell aufeinanderfolgende Aufrufe ohne bekannte Gesamtgroesse
+    # (percent=None) duerfen nur ein Event erzeugen.
+    emit_none = api._make_progress_emitter("share_download", lambda done, total: None)
+    emit_none(1, 0)
+    emit_none(2, 0)
+    events = [e for e in api.events if e["method"] == "share_download"]
+    assert len(events) == 1
+
+    # (b) Nach >= 0.5s Fake-Zeit muss das naechste (weiterhin None-)Event durchkommen.
+    fake_now["t"] += 0.6
+    emit_none(3, 0)
+    events = [e for e in api.events if e["method"] == "share_download"]
+    assert len(events) == 2
+
+    # (c) Ein Prozent-Sprung um >= 3 Punkte emittiert auch ohne Zeitablauf
+    # (Fake-Zeit bleibt bei diesem Teiltest unveraendert).
+    api.events.clear()
+    percents = iter([10, 12, 20])
+    emit_pct = api._make_progress_emitter("share_download", lambda done, total: next(percents))
+    emit_pct(0, 1)  # erster Aufruf: grosser Sprung ggue. last_percent=-100 -> emit
+    emit_pct(0, 1)  # Sprung von 10->12 (< 3) UND keine Zeit vergangen -> skip
+    emit_pct(0, 1)  # Sprung von 10->20 (>= 3) -> emit trotz gleicher Fake-Zeit
+    seen_percents = [e["data"]["percent"] for e in api.events if e["method"] == "share_download"]
+    assert seen_percents == [10, 20]
 
 
 # ──── test_dropzone_drop ────
@@ -558,7 +626,7 @@ def test_unknown_type_key_returns_error(tmp_path):
 def test_get_version(tmp_path):
     api = _make_api(tmp_path)
     result = api.get_version()
-    assert result == {"ok": True, "data": "0.3.0"}
+    assert result == {"ok": True, "data": "0.4.0"}
 
 
 # ──── Fix round 1: reviewer findings ────
@@ -848,7 +916,7 @@ def test_share_download_sets_source_share(tmp_path, monkeypatch):
     gdtf_bytes = gdtf_source.read_bytes()
     api._share.logged_in = True
 
-    def fake_request(method, slug, params=None, data=None):
+    def fake_request(method, slug, params=None, data=None, progress=None):
         assert slug == "downloadFile.php"
         return 200, gdtf_bytes, ""
 
@@ -1030,6 +1098,88 @@ def test_run_export_cancelled_dialog_emits_no_progress(tmp_path):
 
 
 # ──── test_mvr_file_types_are_valid_pywebview_filters ────
+
+
+# ──── library.files / assigned_modes (v0.4 Task 1) ────
+
+
+@pytest.fixture
+def api_with_library(tmp_path):
+    """Api mit zwei Bibliotheks-Fixtures, aber ohne geladene MVR-Datei.
+
+    "Beam One" hat zwei Modi ("Mode 1"/16ch, "Mode 2"/32ch), "Wash Two"
+    ist so namentlich verschieden, dass sie fuer einen "Beam One"-Typ
+    unterhalb der Kandidaten-Score-Schwelle bleibt (kein Kandidat).
+    """
+    library_dir = tmp_path / "library"
+    build_gdtf(
+        library_dir / "Testlight@Beam One@rev1.gdtf",
+        manufacturer="Testlight", name="Beam One",
+        modes=(("Mode 1", 16), ("Mode 2", 32)),
+    )
+    build_gdtf(
+        library_dir / "Testlight@Wash Two@rev1.gdtf",
+        manufacturer="Testlight", name="Wash Two",
+    )
+    return _make_api(tmp_path, library_dir)
+
+
+@pytest.fixture
+def api_with_loaded_mvr(tmp_path, api_with_library):
+    """``api_with_library`` plus einer geladenen MVR mit einer "Beam One"-Fixture.
+
+    Der Auto-Match ordnet "Beam One" (Kandidat mit Score 1.0) direkt zu.
+    """
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[
+            {"name": "Beam One", "uuid": "11111111-1111-1111-1111-111111111111", "address": 1},
+        ],
+    )
+    api_with_library.load_mvr(str(mvr_path))
+    return api_with_library
+
+
+def test_state_contains_sorted_library_files(api_with_library):
+    files = api_with_library.get_state()["data"]["library"]["files"]
+    assert files == sorted(files, key=str.casefold)
+    assert len(files) == api_with_library.get_state()["data"]["library"]["count"]
+
+
+def test_assigned_modes_for_candidate_assignment(api_with_loaded_mvr):
+    # Auto-Match hat "Beam One" zugeordnet (Kandidat) -> volle Modi.
+    state = api_with_loaded_mvr.get_state()["data"]
+    beam = next(t for t in state["types"] if t["assignment"]["gdtf_name"])
+    assert [m["name"] for m in beam["assigned_modes"]] == ["Mode 1", "Mode 2"]
+    assert beam["assigned_modes"][1]["channel_count"] == 32
+
+
+def test_assigned_modes_for_non_candidate_library_assignment(api_with_loaded_mvr):
+    # Nutzer-Report-Pfad: eine GDTF zuordnen, die NICHT in den Kandidaten
+    # des Typs steht (z. B. "Wash Two" fuer den Beam-Typ).
+    state = api_with_loaded_mvr.get_state()["data"]
+    type_key = state["types"][0]["key"]
+    candidate_names = {c["gdtf_name"] for c in state["types"][0]["candidates"]}
+    other = next(
+        (name for name in state["library"]["files"] if name not in candidate_names),
+        None,
+    )
+    if other is None:
+        pytest.skip("Bibliothek enthaelt keine Nicht-Kandidaten-GDTF fuer diesen Typ")
+    result = api_with_loaded_mvr.set_gdtf(type_key, other)
+    assert result["ok"]
+    updated = next(t for t in result["data"]["types"] if t["key"] == type_key)
+    assert updated["assignment"]["gdtf_name"] == other
+    assert updated["assigned_modes"], "assigned_modes muss auch ohne Kandidat gefuellt sein"
+    assert all("name" in m and "channel_count" in m for m in updated["assigned_modes"])
+
+
+def test_assigned_modes_empty_without_assignment(api_with_loaded_mvr):
+    state = api_with_loaded_mvr.get_state()["data"]
+    type_key = state["types"][0]["key"]
+    result = api_with_loaded_mvr.set_gdtf(type_key, "")
+    updated = next(t for t in result["data"]["types"] if t["key"] == type_key)
+    assert updated["assigned_modes"] == []
 
 
 def test_mvr_file_types_are_valid_pywebview_filters():

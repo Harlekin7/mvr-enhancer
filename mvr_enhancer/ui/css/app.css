@@ -506,7 +506,23 @@ button { font: inherit; }
   cursor: help;
 }
 
-.gdtf-cell-empty { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gdtf-cell { display: flex; align-items: center; gap: 6px; }
+.gdtf-cell .sel-gdtf { flex: 1 1 auto; min-width: 0; }
+.btn-share-ico {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: transparent;
+  border: 1px solid var(--border-dark);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.btn-share-ico:hover { border-color: var(--blue-300); }
+.btn-share-ico:focus-visible { outline: 2px solid var(--blue-300); outline-offset: -1px; }
+
 .muted-text { font-size: 13px; color: var(--text-inverse-muted); }
 .muted-text.strike { text-decoration: line-through; }
 .em-dash { color: var(--text-inverse-muted); font-size: 13px; }

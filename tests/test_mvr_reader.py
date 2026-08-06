@@ -221,3 +221,27 @@ def test_layers_default_empty_on_invalid_mvr(tmp_path):
     bad.write_bytes(b"not a zip")
     scene = read_mvr(str(bad))
     assert scene.layers == []
+
+
+def test_read_mvr_reports_progress(tmp_path):
+    mvr = build_mvr(
+        tmp_path / "p.mvr",
+        fixtures=[{"name": "Spot 1", "address": 1}],
+        embedded={"mesh1.glb": b"x" * 10, "mesh2.glb": b"y" * 10},
+    )
+    calls = []
+    read_mvr(str(mvr), progress=lambda done, total: calls.append((done, total)))
+    assert calls, "progress-Callback wurde nie aufgerufen"
+    totals = {t for _, t in calls}
+    assert len(totals) == 1, "total muss konstant sein"
+    total = totals.pop()
+    assert calls[0] == (0, total)
+    assert calls[-1] == (total, total)
+    dones = [d for d, _ in calls]
+    assert dones == sorted(dones), "done muss monoton steigen"
+
+
+def test_read_mvr_without_progress_unchanged(tmp_path):
+    mvr = build_mvr(tmp_path / "q.mvr", fixtures=[{"name": "Spot 1", "address": 1}])
+    scene = read_mvr(str(mvr))
+    assert scene.xml_root is not None
