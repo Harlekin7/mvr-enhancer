@@ -81,7 +81,7 @@ def test_download_writes_and_imports(tmp_path, monkeypatch):
     client = GdtfShareClient()
     client.logged_in = True
 
-    def fake_request(method, slug, params=None, data=None):
+    def fake_request(method, slug, params=None, data=None, progress=None):
         assert slug == "downloadFile.php"
         assert params == {"rid": 42}
         return 200, gdtf_bytes, ""
@@ -105,7 +105,7 @@ def test_download_size_limit(tmp_path, monkeypatch):
 
     monkeypatch.setattr(share_module, "MAX_GDTF_DOWNLOAD_SIZE", 10)
 
-    def fake_request(method, slug, params=None, data=None):
+    def fake_request(method, slug, params=None, data=None, progress=None):
         return 200, b"x" * 1000, ""
 
     monkeypatch.setattr(client, "_request", fake_request)
@@ -166,7 +166,7 @@ def test_download_uses_content_disposition_from_request_result(tmp_path, monkeyp
     client = GdtfShareClient()
     client.logged_in = True
 
-    def fake_request(method, slug, params=None, data=None):
+    def fake_request(method, slug, params=None, data=None, progress=None):
         return 200, gdtf_bytes, 'attachment; filename="Vendor@Beam One@rev3.gdtf"'
 
     monkeypatch.setattr(client, "_request", fake_request)
@@ -190,7 +190,7 @@ def test_download_never_retries_more_than_once_on_401(tmp_path, monkeypatch):
 
     calls = {"download": 0, "login": 0}
 
-    def fake_request(method, slug, params=None, data=None):
+    def fake_request(method, slug, params=None, data=None, progress=None):
         if slug == "login.php":
             calls["login"] += 1
             return 200, json.dumps({"result": True}).encode(), ""
@@ -219,7 +219,7 @@ def test_failed_download_leaves_no_residue(tmp_path, monkeypatch):
     client = GdtfShareClient()
     client.logged_in = True
 
-    def fake_request(method, slug, params=None, data=None):
+    def fake_request(method, slug, params=None, data=None, progress=None):
         return 200, b"this is not a gdtf archive", 'attachment; filename="Bad@File@r1.gdtf"'
 
     monkeypatch.setattr(client, "_request", fake_request)
@@ -270,3 +270,126 @@ def test_list_cache_roundtrip(tmp_path, monkeypatch):
     third = client2.get_fixture_list(force_refresh=True)
     assert third == fixtures
     assert call_count["n"] == 1
+
+
+# ──── Download-Fortschritt (v0.4 Task 4) ────
+
+
+class _FakeHeaders:
+    """Minimaler Stand-in fuer ``http.client.HTTPMessage.get()``."""
+
+    def __init__(self, content_length: int | None):
+        self._content_length = content_length
+
+    def get(self, key, default=None):
+        if key == "Content-Length" and self._content_length is not None:
+            return str(self._content_length)
+        if key == "Content-Disposition":
+            return ""
+        return default
+
+
+class _FakeResponse:
+    """Stand-in fuer die ``with self._opener.open(...) as resp:``-Antwort.
+
+    Liefert ``body`` in Chunks ueber ``read(n)`` zurueck, wie es echte
+    ``http.client.HTTPResponse``-Objekte tun, damit ``_request``s
+    Chunk-Schleife (und damit die Fortschritts-Callbacks) unveraendert
+    getestet werden kann, ohne echte Netzwerk-I/O.
+    """
+
+    def __init__(self, body: bytes, content_length: int | None):
+        self.status = 200
+        self.headers = _FakeHeaders(content_length)
+        self._body = body
+        self._pos = 0
+
+    def read(self, n: int) -> bytes:
+        chunk = self._body[self._pos:self._pos + n]
+        self._pos += len(chunk)
+        return chunk
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+def test_request_reports_download_progress(monkeypatch):
+    """``_request`` muss nach jedem Chunk den Fortschritt melden.
+
+    Der Fake-Body liegt bewusst ueber der 64-KiB-Chunkgroesse, damit die
+    Lese-Schleife mehrfach durchlaeuft und mehrere Fortschritts-Aufrufe
+    entstehen (nicht nur ein einzelner Endaufruf).
+    """
+    client = GdtfShareClient()
+    body = b"x" * (65536 + 100)
+
+    monkeypatch.setattr(
+        client._opener, "open", lambda req, timeout=30: _FakeResponse(body, len(body))
+    )
+
+    seen: list[tuple[int, int]] = []
+    status, resp_body, _disposition = client._request(
+        "GET", "downloadFile.php", params={"rid": 1},
+        progress=lambda done, total: seen.append((done, total)),
+    )
+
+    assert status == 200
+    assert resp_body == body
+    assert len(seen) >= 2, "Body > 64 KiB muss mehr als einen Chunk erzeugen"
+    downloaded_values = [downloaded for downloaded, _total in seen]
+    assert downloaded_values == sorted(downloaded_values), "downloaded muss monoton steigen"
+    assert downloaded_values[-1] == len(body)
+    assert all(total == len(body) for _downloaded, total in seen)
+
+
+def test_request_without_content_length_reports_zero_total(monkeypatch):
+    """Fehlt der ``Content-Length``-Header, ist ``total_bytes`` 0 statt eines Fehlers."""
+    client = GdtfShareClient()
+    body = b"y" * 10
+
+    monkeypatch.setattr(
+        client._opener, "open", lambda req, timeout=30: _FakeResponse(body, None)
+    )
+
+    seen: list[tuple[int, int]] = []
+    client._request(
+        "GET", "downloadFile.php",
+        progress=lambda done, total: seen.append((done, total)),
+    )
+
+    assert seen
+    assert all(total == 0 for _downloaded, total in seen)
+
+
+def test_download_passes_progress_through(tmp_path, monkeypatch):
+    """``download()`` muss ``progress`` an seinen ``_request``-Aufruf durchreichen."""
+    source = build_gdtf(
+        tmp_path / "source.gdtf", manufacturer="Testlight", name="Beam One",
+    )
+    gdtf_bytes = source.read_bytes()
+
+    client = GdtfShareClient()
+    client.logged_in = True
+    seen_progress = {}
+
+    def fake_request(method, slug, params=None, data=None, progress=None):
+        seen_progress["callback"] = progress
+        if slug == "downloadFile.php" and progress is not None:
+            progress(len(gdtf_bytes), len(gdtf_bytes))
+        return 200, gdtf_bytes, ""
+
+    monkeypatch.setattr(client, "_request", fake_request)
+
+    calls: list[tuple[int, int]] = []
+
+    def on_progress(done, total):
+        calls.append((done, total))
+
+    fixture = client.download(42, str(tmp_path / "library"), progress=on_progress)
+
+    assert fixture is not None
+    assert seen_progress["callback"] is on_progress
+    assert calls == [(len(gdtf_bytes), len(gdtf_bytes))]

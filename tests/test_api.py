@@ -277,6 +277,31 @@ def test_load_mvr_emits_progress_start_event(tmp_path):
     assert progress and progress[0]["data"]["phase"] == "start"
 
 
+# ──── test_load_mvr_emits_read_and_match_progress (v0.4 Task 4) ────
+
+
+def test_load_mvr_emits_read_and_match_progress(tmp_path):
+    api = _make_api(tmp_path)
+    mvr = build_mvr(
+        tmp_path / "p.mvr",
+        fixtures=[{"name": "Spot 1", "address": 1}],
+        embedded={"mesh1.glb": b"x" * 10},
+    )
+
+    api.load_mvr(str(mvr))
+
+    progress = [
+        e["data"] for e in api.events
+        if e.get("type") == "progress" and e.get("method") == "load_mvr"
+    ]
+    phases = [p.get("phase") for p in progress]
+    assert phases[0] == "start"
+    assert "match" in phases
+    percents = [p["percent"] for p in progress if p.get("percent") is not None]
+    assert percents == sorted(percents), "percent muss monoton steigen"
+    assert percents and percents[-1] == 95
+
+
 # ──── test_dropzone_drop ────
 
 
@@ -850,7 +875,7 @@ def test_share_download_sets_source_share(tmp_path, monkeypatch):
     gdtf_bytes = gdtf_source.read_bytes()
     api._share.logged_in = True
 
-    def fake_request(method, slug, params=None, data=None):
+    def fake_request(method, slug, params=None, data=None, progress=None):
         assert slug == "downloadFile.php"
         return 200, gdtf_bytes, ""
 
