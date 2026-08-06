@@ -30,14 +30,14 @@ In der Quellen-Leiste von Schritt 2 schaltest du zwischen zwei Modi um:
 - In der Quellen-Leiste (Schritt 2) wählst du einen lokalen Ordner mit GDTF-Dateien als Bibliothek. Der Ordner wird gescannt, die Fixtures stehen danach als Score-Vorschläge zur Verfügung.
 - Optional kannst du dich mit deinem [GDTF Share](https://www.gdtf-share.com/)-Account anmelden, um fehlende Fixtures direkt zu suchen und in deine Bibliothek zu laden — ohne den Umweg über den Browser.
 
-## Bekannte Grenzen (v0.2.0)
+## Bekannte Grenzen (v0.3.0)
 
 - Fixtures mit mehreren DMX-Breaks werden aktuell als Single-Break gelesen — die Adress-Kollisionsprüfung kann Kollisionen dadurch unterschätzen.
 - Ein Footprint, der über eine 512-Kanal-Universumsgrenze reicht, wird vollständig dem Start-Universum zugerechnet.
 - Ein Modus mit 0 Kanälen deaktiviert die Kollisionsprüfung für diesen Typ.
 - Bei Überschreiten der ZIP-Schutzlimits wird die Szene gekürzt (Schutz vor manipulierten Dateien).
 - Ein MVR-Import kann vorhandene grandMA3-Show-Layer nicht löschen — leere Layer in einer bestehenden Show stammen aus früheren Importen und müssen dort manuell entfernt werden.
-- Backlog (noch nicht enthalten): Score-Legende-Tooltip, Detailansicht der Adress-Kollision, „Overrides teilen", „Diff zum letzten Export".
+- Backlog (noch nicht enthalten): Detailansicht der Adress-Kollision. („Overrides teilen" und „Diff zum letzten Export" sind bewusst gestrichen.)
 
 ## Entwicklung
 

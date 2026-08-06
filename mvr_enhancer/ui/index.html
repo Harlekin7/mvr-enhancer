@@ -17,7 +17,7 @@
     <span class="header-sep"></span>
     <span class="subbrand">MVR Export</span>
     <span class="header-spacer"></span>
-    <span class="version-string">v0.1.0 &middot; DIN SPEC 15801 &middot; MVR 1.6</span>
+    <span class="version-string">v0.3.0 &middot; DIN SPEC 15801 &middot; MVR 1.6</span>
     <span class="icon ic-18 ic-blue200" data-icon="settings-2" title="Einstellungen"></span>
   </header>
 
@@ -140,12 +140,12 @@
                       </div>
                       <div id="share-status-out" class="share-status">
                         <span class="muted">nicht angemeldet</span>
-                        <button id="btn-share-login" type="button" class="btn btn-outline btn-sm">Anmelden</button>
+                        <button id="btn-share-login" type="button" class="btn btn-outline btn-sm" title="Meldet dich an der &ouml;ffentlichen GDTF-Share-Datenbank an, um fehlende GDTFs zu suchen und herunterzuladen.">Anmelden</button>
                       </div>
                     </div>
                   </div>
                   <span class="v-sep"></span>
-                  <label class="chk">
+                  <label class="chk" title="Fasst Fixtures im Export nach ihrer Position (z. B. Traverse 1) zu Gruppen zusammen &mdash; in grandMA3 als Grouping sichtbar.">
                     <input type="checkbox" id="chk-gruppieren" checked />
                     <span class="chk-box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
                     <span class="chk-label">Nach Position gruppieren</span>
@@ -153,16 +153,13 @@
                   <span class="v-sep"></span>
                   <div class="seg" id="seg-layer-mode" role="group" aria-label="Export-Modus">
                     <span class="seg-label">Export:</span>
-                    <button id="seg-single" type="button" class="seg-btn seg-btn-left" data-mode="single">Single Layer</button>
-                    <button id="seg-per-layer" type="button" class="seg-btn seg-btn-right" data-mode="per_layer">Per Layer</button>
-                  </div>
-                  <div class="sources-bar-right">
-                    <button id="btn-overrides" type="button" class="btn btn-outline btn-sm" disabled title="folgt in einem sp&auml;teren Release">Overrides teilen</button>
+                    <button id="seg-single" type="button" class="seg-btn seg-btn-left" data-mode="single" title="Alles in einem Layer 'MVR Enhancer Export': Fixtures plus eine 3D-Gruppe mit allen Objekten. Empfohlen f&uuml;r einfache Shows.">Single Layer</button>
+                    <button id="seg-per-layer" type="button" class="seg-btn seg-btn-right" data-mode="per_layer" title="Fixtures im Layer 'MVR Enhancer Export'; 3D-Objekte bleiben in ihren Original-Layern (dort je ein 3D-Grouping). Original-Layer ohne 3D-Objekte entfallen.">Per Layer</button>
                   </div>
                 </div>
 
                 <div class="table-filter-row">
-                  <label class="chk">
+                  <label class="chk" title="Zeigt nur Typen mit offenen Punkten: ohne Zuordnung, entfernt oder mit Modus-Fallback.">
                     <input type="checkbox" id="filter-problems" />
                     <span class="chk-box"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>
                     <span class="chk-label">Nur Probleme anzeigen</span>
@@ -176,7 +173,7 @@
                         <tr>
                           <th>Fixture-Typ</th>
                           <th>GDTF-Datei</th>
-                          <th>Score</th>
+                          <th title="Score-Legende: ab 0.90 sicherer Treffer &middot; 0.30 bis 0.89 bitte pr&uuml;fen &middot; unter 0.30 unwahrscheinlich.">Score</th>
                           <th>DMX-Modus</th>
                           <th>Quelle</th>
                         </tr>
@@ -241,10 +238,10 @@
                     </div>
 
                     <div id="export-stats" class="export-stats">
-                      <div class="stat"><div id="es-matched" class="stat-value">0/0</div><div class="stat-label">Fixtures gematcht</div></div>
-                      <div class="stat"><div id="es-embedded" class="stat-value">0</div><div class="stat-label">GDTFs eingebettet</div></div>
-                      <div class="stat"><div id="es-meshes" class="stat-value">0</div><div class="stat-label">Meshes &uuml;bernommen</div></div>
-                      <div class="stat"><div id="es-positions" class="stat-value">0</div><div class="stat-label">Positionsgruppen</div></div>
+                      <div class="stat" title="Fixtures mit konkreter GDTF-Zuordnung, die exportiert werden &mdash; gemessen an allen Fixtures im Quell-MVR."><div id="es-matched" class="stat-value">0/0</div><div class="stat-label">Fixtures gematcht</div></div>
+                      <div class="stat" title="Anzahl der GDTF-Dateien, die in das exportierte MVR eingebettet werden."><div id="es-embedded" class="stat-value">0</div><div class="stat-label">GDTFs eingebettet</div></div>
+                      <div class="stat" title="3D-Geometrien aus dem Quell-MVR, die unver&auml;ndert &uuml;bernommen werden."><div id="es-meshes" class="stat-value">0</div><div class="stat-label">Meshes &uuml;bernommen</div></div>
+                      <div class="stat" title="Positions-Gruppen im Export (nur bei aktivierter Positions-Gruppierung)."><div id="es-positions" class="stat-value">0</div><div class="stat-label">Positionsgruppen</div></div>
                     </div>
 
                     <div id="warn-stack" class="warn-stack"></div>
@@ -258,12 +255,12 @@
                         <div class="export-target-label">Ziel</div>
                         <div id="export-target-path-pre" class="export-target-path"></div>
                       </div>
-                      <div class="export-uuid-row">
+                      <div class="export-uuid-row" title="Gleiche Eingaben erzeugen exakt dieselben UUIDs &mdash; grandMA3 erkennt Re-Importe wieder, statt Duplikate anzulegen.">
                         <span>Reproduzierbare UUIDs</span>
                         <span class="badge tone-ondark">aktiv</span>
                       </div>
                       <button id="btn-export" type="button" class="btn btn-lg btn-primary btn-full">Exportieren</button>
-                      <div class="export-panel-hint">Danach: vollst&auml;ndiger Report + Diff zum letzten Export</div>
+                      <div class="export-panel-hint">Danach: vollst&auml;ndiger Report</div>
                     </div>
 
                     <div id="export-panel-post" class="export-panel-post hidden">
@@ -272,7 +269,6 @@
                         <div id="export-target-path-post" class="export-target-path"></div>
                       </div>
                       <button id="btn-open-folder" type="button" class="btn btn-primary btn-md btn-full">Ordner &ouml;ffnen</button>
-                      <button id="btn-diff" type="button" class="btn btn-outline btn-md btn-full" disabled>Diff zum letzten Export</button>
                       <a href="#" id="btn-new-export" class="link-inline">Neuen Export starten</a>
                     </div>
 

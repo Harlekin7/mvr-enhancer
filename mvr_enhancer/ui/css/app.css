@@ -419,7 +419,6 @@ button { font: inherit; }
 .share-status { font-size: 13px; color: var(--white); display: flex; align-items: center; gap: 6px; }
 #share-status-out { font-size: 13px; color: var(--text-inverse-muted); display: flex; align-items: center; gap: 8px; }
 .status-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--status-success); flex: none; }
-.sources-bar-right { margin-left: auto; }
 
 .seg { display: flex; align-items: center; gap: 10px; }
 .seg-label { font-size: 13px; color: var(--text-inverse-muted); }

@@ -558,7 +558,7 @@ def test_unknown_type_key_returns_error(tmp_path):
 def test_get_version(tmp_path):
     api = _make_api(tmp_path)
     result = api.get_version()
-    assert result == {"ok": True, "data": "0.1.0"}
+    assert result == {"ok": True, "data": "0.3.0"}
 
 
 # ──── Fix round 1: reviewer findings ────
