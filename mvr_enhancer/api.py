@@ -245,6 +245,16 @@ class Api:
                 for fixture_type in self._types:
                     assignment = self._assignments.get(fixture_type.key) or Assignment()
                     candidates = self._candidates.get(fixture_type.key, [])
+                    if assignment.gdtf_name:
+                        assigned_candidate = self._find_candidate(
+                            fixture_type.key, assignment.gdtf_name
+                        )
+                        if assigned_candidate is not None:
+                            assigned_modes = list(assigned_candidate.modes)
+                        else:
+                            assigned_modes = self._modes_from_library(assignment.gdtf_name)
+                    else:
+                        assigned_modes = []
                     types_out.append(
                         {
                             "key": fixture_type.key,
@@ -256,6 +266,7 @@ class Api:
                             "existing_mode": fixture_type.existing_mode,
                             "candidates": [serialize(c) for c in candidates],
                             "assignment": serialize(assignment),
+                            "assigned_modes": assigned_modes,
                         }
                     )
                     if assignment.removed:
@@ -291,6 +302,7 @@ class Api:
                     "library": {
                         "dir": self._library_dir,
                         "count": len(self._gdtf_library),
+                        "files": sorted(self._gdtf_library.keys(), key=str.casefold),
                     },
                     "recent": recent,
                     "warnings": copy.deepcopy(self._warnings),

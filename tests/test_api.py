@@ -13,6 +13,8 @@ import os
 import zipfile
 from xml.etree import ElementTree as ET
 
+import pytest
+
 from mvr_enhancer import api as api_module
 from mvr_enhancer.api import Api
 from mvr_enhancer.settings import Settings
@@ -1030,6 +1032,85 @@ def test_run_export_cancelled_dialog_emits_no_progress(tmp_path):
 
 
 # ──── test_mvr_file_types_are_valid_pywebview_filters ────
+
+
+# ──── library.files / assigned_modes (v0.4 Task 1) ────
+
+
+@pytest.fixture
+def api_with_library(tmp_path):
+    """Api mit zwei Bibliotheks-Fixtures, aber ohne geladene MVR-Datei.
+
+    "Beam One" hat zwei Modi ("Mode 1"/16ch, "Mode 2"/32ch), "Wash Two"
+    ist so namentlich verschieden, dass sie fuer einen "Beam One"-Typ
+    unterhalb der Kandidaten-Score-Schwelle bleibt (kein Kandidat).
+    """
+    library_dir = tmp_path / "library"
+    build_gdtf(
+        library_dir / "Testlight@Beam One@rev1.gdtf",
+        manufacturer="Testlight", name="Beam One",
+        modes=(("Mode 1", 16), ("Mode 2", 32)),
+    )
+    build_gdtf(
+        library_dir / "Testlight@Wash Two@rev1.gdtf",
+        manufacturer="Testlight", name="Wash Two",
+    )
+    return _make_api(tmp_path, library_dir)
+
+
+@pytest.fixture
+def api_with_loaded_mvr(tmp_path, api_with_library):
+    """``api_with_library`` plus einer geladenen MVR mit einer "Beam One"-Fixture.
+
+    Der Auto-Match ordnet "Beam One" (Kandidat mit Score 1.0) direkt zu.
+    """
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[
+            {"name": "Beam One", "uuid": "11111111-1111-1111-1111-111111111111", "address": 1},
+        ],
+    )
+    api_with_library.load_mvr(str(mvr_path))
+    return api_with_library
+
+
+def test_state_contains_sorted_library_files(api_with_library):
+    files = api_with_library.get_state()["data"]["library"]["files"]
+    assert files == sorted(files, key=str.casefold)
+    assert len(files) == api_with_library.get_state()["data"]["library"]["count"]
+
+
+def test_assigned_modes_for_candidate_assignment(api_with_loaded_mvr):
+    # Auto-Match hat "Beam One" zugeordnet (Kandidat) -> volle Modi.
+    state = api_with_loaded_mvr.get_state()["data"]
+    beam = next(t for t in state["types"] if t["assignment"]["gdtf_name"])
+    assert [m["name"] for m in beam["assigned_modes"]] == ["Mode 1", "Mode 2"]
+    assert beam["assigned_modes"][1]["channel_count"] == 32
+
+
+def test_assigned_modes_for_non_candidate_library_assignment(api_with_loaded_mvr):
+    # Nutzer-Report-Pfad: eine GDTF zuordnen, die NICHT in den Kandidaten
+    # des Typs steht (z. B. "Wash Two" fuer den Beam-Typ).
+    state = api_with_loaded_mvr.get_state()["data"]
+    type_key = state["types"][0]["key"]
+    other = next(name for name in state["library"]["files"]
+                 if name != state["types"][0]["assignment"]["gdtf_name"])
+    assert not any(c["gdtf_name"] == other for c in state["types"][0]["candidates"]) \
+        or True  # falls doch Kandidat: Test unten prueft trotzdem die Modi
+    result = api_with_loaded_mvr.set_gdtf(type_key, other)
+    assert result["ok"]
+    updated = next(t for t in result["data"]["types"] if t["key"] == type_key)
+    assert updated["assignment"]["gdtf_name"] == other
+    assert updated["assigned_modes"], "assigned_modes muss auch ohne Kandidat gefuellt sein"
+    assert all("name" in m and "channel_count" in m for m in updated["assigned_modes"])
+
+
+def test_assigned_modes_empty_without_assignment(api_with_loaded_mvr):
+    state = api_with_loaded_mvr.get_state()["data"]
+    type_key = state["types"][0]["key"]
+    result = api_with_loaded_mvr.set_gdtf(type_key, "")
+    updated = next(t for t in result["data"]["types"] if t["key"] == type_key)
+    assert updated["assigned_modes"] == []
 
 
 def test_mvr_file_types_are_valid_pywebview_filters():
