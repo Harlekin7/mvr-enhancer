@@ -227,8 +227,13 @@ class Api:
 
         ``to_percent(done, total) -> int | None`` mappt Rohwerte auf Prozent.
         Drossel: Event nur, wenn der Prozentwert um >= 3 Punkte gestiegen ist
-        ODER >= 0.5 s seit dem letzten Event vergangen sind. Exceptions werden
-        gefangen — ein UI-Event darf nie das Laden abbrechen.
+        ODER >= 0.5 s seit dem letzten Event vergangen sind. Ein ``None``-
+        Prozentwert (unbekannte Gesamtgroesse, z. B. ``share_download`` ohne
+        Content-Length) hat keinen Sprung, den die Drossel messen koennte,
+        und laeuft daher rein zeitgedrosselt (sonst wuerde jeder 64-KiB-Chunk
+        ungedrosselt ein Event ausloesen — bei einem 15-MB-Download ohne
+        Content-Length-Header waeren das ~230 Events an die UI). Exceptions
+        werden gefangen — ein UI-Event darf nie das Laden abbrechen.
 
         Der zurueckgegebene Callback wird von ``read_mvr``/``GdtfShareClient``
         aus einem Hintergrund-Thread aufgerufen (Produktionsmodus): ``state``
@@ -243,7 +248,7 @@ class Api:
             try:
                 percent = to_percent(done, total)
                 now = time.monotonic()
-                if percent is not None and percent < state["last_percent"] + 3 \
+                if (percent is None or percent < state["last_percent"] + 3) \
                         and now - state["last_ts"] < 0.5:
                     return
                 state["last_percent"] = percent if percent is not None else state["last_percent"]

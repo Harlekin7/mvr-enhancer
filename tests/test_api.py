@@ -302,6 +302,47 @@ def test_load_mvr_emits_read_and_match_progress(tmp_path):
     assert percents and percents[-1] == 95
 
 
+# ──── test_progress_emitter_throttle_skip_path (v0.4 Task 4 Fix) ────
+
+
+def test_progress_emitter_throttle_skip_path(tmp_path, monkeypatch):
+    """Deckt den bislang ungetesteten Skip-Pfad der Drossel ab (nicht nur den Happy-Path).
+
+    Regression: bei ``percent=None`` (unbekannte Gesamtgroesse, z. B.
+    ``share_download`` ohne Content-Length) griff die Drossel frueher nie —
+    jeder 64-KiB-Chunk erzeugte ungedrosselt ein Event. Jetzt laeuft ein
+    ``None``-Prozentwert rein zeitgedrosselt (>= 0.5 s zwischen Events).
+    """
+    api = _make_api(tmp_path)
+    fake_now = {"t": 100.0}
+    monkeypatch.setattr(api_module.time, "monotonic", lambda: fake_now["t"])
+
+    # (a) Zwei schnell aufeinanderfolgende Aufrufe ohne bekannte Gesamtgroesse
+    # (percent=None) duerfen nur ein Event erzeugen.
+    emit_none = api._make_progress_emitter("share_download", lambda done, total: None)
+    emit_none(1, 0)
+    emit_none(2, 0)
+    events = [e for e in api.events if e["method"] == "share_download"]
+    assert len(events) == 1
+
+    # (b) Nach >= 0.5s Fake-Zeit muss das naechste (weiterhin None-)Event durchkommen.
+    fake_now["t"] += 0.6
+    emit_none(3, 0)
+    events = [e for e in api.events if e["method"] == "share_download"]
+    assert len(events) == 2
+
+    # (c) Ein Prozent-Sprung um >= 3 Punkte emittiert auch ohne Zeitablauf
+    # (Fake-Zeit bleibt bei diesem Teiltest unveraendert).
+    api.events.clear()
+    percents = iter([10, 12, 20])
+    emit_pct = api._make_progress_emitter("share_download", lambda done, total: next(percents))
+    emit_pct(0, 1)  # erster Aufruf: grosser Sprung ggue. last_percent=-100 -> emit
+    emit_pct(0, 1)  # Sprung von 10->12 (< 3) UND keine Zeit vergangen -> skip
+    emit_pct(0, 1)  # Sprung von 10->20 (>= 3) -> emit trotz gleicher Fake-Zeit
+    seen_percents = [e["data"]["percent"] for e in api.events if e["method"] == "share_download"]
+    assert seen_percents == [10, 20]
+
+
 # ──── test_dropzone_drop ────
 
 
