@@ -27,7 +27,7 @@
     types: [],
     grouping: true,
     share: { logged_in: false, user: "" },
-    library: { dir: "", count: 0 },
+    library: { dir: "", count: 0, files: [] },
     recent: [],
     warnings: { fallbacks: [], collisions: [], cleanup_preview: null },
     layer_mode: "single",
@@ -783,54 +783,66 @@
     return '<span class="badge tone-' + tone + '" title="' + scoreTitle + '">' + score.toFixed(2) + "</span>";
   }
 
-  function gdtfCellHtml(type) {
+  var REMOVED_SENTINEL = "__removed__";
+
+  function gdtfCellHtml(type, libraryFiles) {
     var assignment = type.assignment;
-    if (assignment.removed) {
-      return (
-        '<div class="gdtf-cell-empty">' +
-        '<span class="muted-text strike">wird entfernt</span>' +
-        '<button type="button" class="btn btn-outline btn-sm btn-reassign" data-type-key="' +
-        esc(type.key) + '">Doch zuordnen</button>' +
-        "</div>"
-      );
-    }
-    // "No hit" only when there is genuinely nothing to show. A share download
-    // assigns a GDTF whose name may not appear among the (score-matched)
-    // candidates at all — showing the empty state there would render a fully
-    // assigned type as unassigned and offer to search the Share again.
-    if (!type.candidates.length && !assignment.gdtf_name) {
-      return (
-        '<div class="gdtf-cell-empty">' +
-        '<span class="muted-text">kein Treffer in der Bibliothek</span>' +
-        '<button type="button" class="btn btn-outline btn-sm btn-share-search" data-type-key="' +
-        esc(type.key) + '" data-type-name="' + esc(type.name) + '">Im Share suchen</button>' +
-        "</div>"
-      );
-    }
-    var options = ['<option value="">— kein Treffer —</option>'];
-    var assignedIsCandidate = type.candidates.some(function (c) {
-      return c.gdtf_name === assignment.gdtf_name;
-    });
-    if (assignment.gdtf_name && !assignedIsCandidate) {
-      // Synthetic option for an assignment the candidate list doesn't know
-      // (share download, or a name resolved outside the score matching), so
-      // the select can actually show it as the selected value.
-      options.push(
-        '<option value="' + esc(assignment.gdtf_name) + '" selected>' +
-        esc(assignment.gdtf_name) + "</option>"
-      );
-    }
+    // Bei removed=true behaelt das Assignment seinen gdtf_name (set_removed
+    // flippt nur das Flag) — dann darf NUR der Sentinel-Eintrag selected
+    // sein, sonst gewinnt die spaeter gerenderte GDTF-Option.
+    var selectedName = assignment.removed ? null : assignment.gdtf_name;
+    var candidateNames = {};
+    var candidateOptions = [];
     type.candidates.forEach(function (c) {
-      options.push(
+      candidateNames[c.gdtf_name] = true;
+      candidateOptions.push(
         '<option value="' + esc(c.gdtf_name) + '"' +
-        (c.gdtf_name === assignment.gdtf_name ? " selected" : "") +
+        (c.gdtf_name === selectedName ? " selected" : "") +
         ">" + esc(c.gdtf_name) + "</option>"
       );
     });
-    var selectTitle = assignment.gdtf_name ? ' title="' + esc(assignment.gdtf_name) + '"' : "";
+    var libraryOptions = [];
+    (libraryFiles || []).forEach(function (name) {
+      if (candidateNames[name]) return;
+      libraryOptions.push(
+        '<option value="' + esc(name) + '"' +
+        (name === selectedName ? " selected" : "") +
+        ">" + esc(name) + "</option>"
+      );
+    });
+    var options = [
+      '<option value=""' + (!assignment.removed && !assignment.gdtf_name ? " selected" : "") +
+      ">&mdash; nicht zugeordnet &mdash;</option>",
+      '<option value="' + REMOVED_SENTINEL + '"' + (assignment.removed ? " selected" : "") +
+      ">&mdash; aktiv entfernt &mdash;</option>"
+    ];
+    var assignedKnown = selectedName &&
+      (candidateNames[selectedName] ||
+        (libraryFiles || []).indexOf(selectedName) !== -1);
+    if (selectedName && !assignedKnown) {
+      // Sicherheitsnetz: Zuordnung, die weder Kandidat noch Bibliothek kennt
+      // (z. B. Bibliothek nach Share-Download noch nicht neu geladen).
+      options.push(
+        '<option value="' + esc(selectedName) + '" selected>' +
+        esc(selectedName) + "</option>"
+      );
+    }
+    if (candidateOptions.length) {
+      options.push('<optgroup label="Vorschl&auml;ge">' + candidateOptions.join("") + "</optgroup>");
+    }
+    if (libraryOptions.length) {
+      options.push('<optgroup label="Gesamte Bibliothek">' + libraryOptions.join("") + "</optgroup>");
+    }
+    var selectTitle = selectedName ? ' title="' + esc(selectedName) + '"' : "";
     return (
+      '<div class="gdtf-cell">' +
       '<select class="sel-dark sel-gdtf" data-type-key="' + esc(type.key) + '"' + selectTitle + '>' +
-      options.join("") + "</select>"
+      options.join("") + "</select>" +
+      '<button type="button" class="btn-share-ico btn-share-search" data-type-key="' + esc(type.key) +
+      '" data-type-name="' + esc(type.name) + '" title="Im GDTF Share suchen">' +
+      iconSpanHtml("globe", "ic-15 ic-blue300") +
+      "</button>" +
+      "</div>"
     );
   }
 
@@ -839,7 +851,9 @@
     if (assignment.removed || !assignment.gdtf_name) {
       return '<span class="em-dash">—</span>';
     }
-    var modes = candidate ? candidate.modes : assignment.mode_name ? [{ name: assignment.mode_name, channel_count: 0 }] : [];
+    var modes = candidate ? candidate.modes
+      : (type.assigned_modes && type.assigned_modes.length) ? type.assigned_modes
+      : assignment.mode_name ? [{ name: assignment.mode_name, channel_count: 0 }] : [];
     var options = modes
       .map(function (m) {
         return (
@@ -873,7 +887,7 @@
     return '<span class="badge tone-ondark" title="Aus deinem lokalen GDTF-Bibliotheksordner zugeordnet.">Bibliothek</span>';
   }
 
-  function renderMatchRow(type) {
+  function renderMatchRow(type, libraryFiles) {
     var assignment = type.assignment;
     var candidate = findCandidate(type, assignment.gdtf_name);
     var rowClass = isStylingProblem(assignment) ? "row-problem" : "";
@@ -883,7 +897,7 @@
       '<div class="type-name">' + esc(type.name) + "</div>" +
       '<div class="type-meta">' + esc(type.meta_line) + "</div>" +
       "</td>" +
-      "<td>" + gdtfCellHtml(type) + "</td>" +
+      "<td>" + gdtfCellHtml(type, libraryFiles) + "</td>" +
       "<td>" + scoreCellHtml(assignment.removed ? null : candidate) + "</td>" +
       "<td>" + modeCellHtml(type, candidate) + "</td>" +
       "<td>" + sourceBadgeHtml(assignment) + "</td>" +
@@ -903,11 +917,12 @@
       return;
     }
     $("btn-continue").disabled = false;
+    var libraryFiles = s.library.files || [];
     var rows = s.types
       .filter(function (type) {
         return !localState.nurProbleme || isFilterProblem(type.assignment);
       })
-      .map(renderMatchRow);
+      .map(function (type) { return renderMatchRow(type, libraryFiles); });
     tbody.innerHTML = rows.join("");
   }
 
@@ -1143,7 +1158,11 @@
       var key = e.target.dataset.typeKey;
       if (!key) return;
       if (e.target.classList.contains("sel-gdtf")) {
-        callApi("set_gdtf", key, e.target.value);
+        if (e.target.value === REMOVED_SENTINEL) {
+          callApi("set_removed", key, true);
+        } else {
+          callApi("set_gdtf", key, e.target.value);
+        }
       } else if (e.target.classList.contains("sel-mode")) {
         callApi("set_mode", key, e.target.value);
       }
@@ -1152,11 +1171,6 @@
       var searchBtn = e.target.closest(".btn-share-search");
       if (searchBtn) {
         openSearchModal(searchBtn.dataset.typeKey, searchBtn.dataset.typeName);
-        return;
-      }
-      var reassignBtn = e.target.closest(".btn-reassign");
-      if (reassignBtn) {
-        callApi("set_removed", reassignBtn.dataset.typeKey, false);
       }
     });
 
