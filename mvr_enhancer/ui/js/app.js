@@ -725,7 +725,7 @@
     el.innerHTML = recent
       .map(function (entry) {
         return (
-          '<div class="recent-row" data-path="' + esc(entry.path) + '">' +
+          '<div class="recent-row" data-path="' + esc(entry.path) + '" title="' + esc(entry.path) + '">' +
           iconSpanHtml("file-box", "ic-16 ic-blue300") +
           '<span class="recent-name">' + esc(entry.name) + "</span>" +
           '<span class="recent-time">' + esc(formatDateTime(entry.ts)) + "</span>" +
@@ -775,11 +775,12 @@
 
   function scoreCellHtml(candidate) {
     if (!candidate) {
-      return '<span class="badge tone-ondark">–</span>';
+      return '<span class="badge tone-ondark" title="Kein Score — die Zuordnung stammt nicht aus dem Matching (z. B. Share-Download) oder fehlt.">–</span>';
     }
     var score = candidate.score;
     var tone = score >= 0.9 ? "success" : score >= 0.3 ? "warning" : "danger";
-    return '<span class="badge tone-' + tone + '">' + score.toFixed(2) + "</span>";
+    var scoreTitle = "Score " + score.toFixed(2) + " — ab 0.90 sicher, 0.30 bis 0.89 pruefen, unter 0.30 unwahrscheinlich.";
+    return '<span class="badge tone-' + tone + '" title="' + scoreTitle + '">' + score.toFixed(2) + "</span>";
   }
 
   function gdtfCellHtml(type) {
@@ -826,8 +827,9 @@
         ">" + esc(c.gdtf_name) + "</option>"
       );
     });
+    var selectTitle = assignment.gdtf_name ? ' title="' + esc(assignment.gdtf_name) + '"' : "";
     return (
-      '<select class="sel-dark sel-gdtf" data-type-key="' + esc(type.key) + '">' +
+      '<select class="sel-dark sel-gdtf" data-type-key="' + esc(type.key) + '"' + selectTitle + '>' +
       options.join("") + "</select>"
     );
   }
@@ -859,10 +861,16 @@
   }
 
   function sourceBadgeHtml(assignment) {
-    if (assignment.removed) return '<span class="badge tone-ondark">entfernt</span>';
-    if (!assignment.gdtf_name) return '<span class="badge tone-danger">offen</span>';
-    if (assignment.source === "share") return '<span class="badge tone-brand">Share</span>';
-    return '<span class="badge tone-ondark">Bibliothek</span>';
+    if (assignment.removed) {
+      return '<span class="badge tone-ondark" title="Wird beim Export entfernt (z. B. Plugbox oder Hilfsobjekt ohne GDTF).">entfernt</span>';
+    }
+    if (!assignment.gdtf_name) {
+      return '<span class="badge tone-danger" title="Noch keine GDTF zugeordnet — offene Typen werden beim Export entfernt.">offen</span>';
+    }
+    if (assignment.source === "share") {
+      return '<span class="badge tone-brand" title="Per GDTF-Share-Download zugeordnet.">Share</span>';
+    }
+    return '<span class="badge tone-ondark" title="Aus deinem lokalen GDTF-Bibliotheksordner zugeordnet.">Bibliothek</span>';
   }
 
   function renderMatchRow(type) {
