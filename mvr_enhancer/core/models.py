@@ -25,7 +25,7 @@ class Candidate:
     revision: str
     score: float
     modes: list[dict]  # [{"name": str, "channel_count": int}]
-    source: str  # "library" | "share"
+    source: str  # "library" | "share" | "vectorwatch"
 
 
 @dataclass

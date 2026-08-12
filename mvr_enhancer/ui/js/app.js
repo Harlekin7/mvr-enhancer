@@ -28,6 +28,7 @@
     grouping: true,
     share: { logged_in: false, user: "" },
     library: { dir: "", count: 0, files: [] },
+    vectorwatch: { enabled: true, status: "idle", project_name: "", coverage: 0, applied: 0, total: 0 },
     recent: [],
     warnings: { fallbacks: [], collisions: [], cleanup_preview: null },
     layer_mode: "single",
@@ -39,7 +40,7 @@
   // ──── Module state ────
 
   var serverState = null; // last known get_state() payload, or null until first load
-  var localState = { aktiv: 1, nurProbleme: false };
+  var localState = { aktiv: 1, nurProbleme: false, vwBannerDismissed: false };
   var lastExportReport = null; // EnrichReport from the last run_export "result" event
   var exporting = false;
   var pendingLoginModal = false;
@@ -262,6 +263,9 @@
     // matched/embedded/mesh counts sitting in the Schritt-3 stat row.
     if (wasPath !== newPath || !newState.mvr_loaded) {
       lastExportReport = null;
+      // Der VectorWatch-Hinweis beschreibt den Abgleich EINER Datei — bei
+      // einer neuen/entfernten Datei muss er wieder erscheinen duerfen.
+      localState.vwBannerDismissed = false;
     }
 
     serverState = newState;
@@ -829,6 +833,8 @@
       $("share-user-name").textContent = s.share.user || "";
     }
 
+    renderVectorwatch(s);
+
     $("chk-gruppieren").checked = !!s.grouping;
 
     var layerMode = s.layer_mode || "single";
@@ -836,6 +842,83 @@
     $("seg-per-layer").classList.toggle("active", layerMode === "per_layer");
 
     renderMatchTable(s);
+  }
+
+  // ──── VectorWatch-Abgleich (Statuszeile + Hinweis-Banner) ────
+
+  function vwStatusHtml(vw) {
+    if (!vw.enabled) {
+      return '<span class="muted">Abgleich deaktiviert</span> <a href="#" id="btn-vw-toggle">aktivieren</a>';
+    }
+    var text;
+    switch (vw.status) {
+      case "matched":
+        text =
+          '<span class="status-dot"></span> Projekt <b>' + esc(vw.project_name) + "</b> · " +
+          vw.applied + " von " + vw.total + " übernommen";
+        break;
+      case "no_project":
+        text = '<span class="muted">kein passendes Projekt</span>';
+        break;
+      case "low_coverage":
+        text = '<span class="muted">Projekt passt nur zu ' + Math.round(vw.coverage * 100) + " %</span>";
+        break;
+      case "library_missing":
+        text = '<span class="muted">Bibliotheksordner fehlt</span>';
+        break;
+      case "unavailable":
+        text = '<span class="muted">keine Installation gefunden</span>';
+        break;
+      case "error":
+        text = '<span class="muted">Abgleich fehlgeschlagen</span>';
+        break;
+      default: // "idle"
+        text = '<span class="muted">bereit</span>';
+        break;
+    }
+    return text + ' <a href="#" id="btn-vw-toggle">deaktivieren</a>';
+  }
+
+  function vwBannerText(vw, s) {
+    var mvrName = (s.file_meta && s.file_meta.name) || "";
+    switch (vw.status) {
+      case "matched":
+        return (
+          "Matching aus VectorWatch-Projekt <b>" + esc(vw.project_name) + "</b> übernommen (" +
+          vw.applied + " von " + vw.total + " Typen)."
+        );
+      case "no_project":
+        return (
+          "Kein passendes VectorWatch-Projekt zu <b>" + esc(mvrName) +
+          "</b> gefunden — Matching lokal durchgeführt."
+        );
+      case "low_coverage":
+        return (
+          "VectorWatch-Projekt <b>" + esc(vw.project_name) + "</b> deckt nur " +
+          Math.round(vw.coverage * 100) + " % der Typen ab — Matching lokal durchgeführt."
+        );
+      case "library_missing":
+        return (
+          "VectorWatch-Projekt <b>" + esc(vw.project_name) +
+          "</b> gefunden — bitte zuerst einen GDTF-Bibliotheksordner wählen."
+        );
+      case "error":
+        return "VectorWatch-Abgleich fehlgeschlagen — Matching lokal durchgeführt.";
+      default:
+        // "idle"/"unavailable": bewusst kein Banner — ohne VectorWatch-
+        // Installation soll sich die App exakt wie bisher anfühlen.
+        return "";
+    }
+  }
+
+  function renderVectorwatch(s) {
+    var vw = s.vectorwatch || EMPTY_STATE.vectorwatch;
+    $("vw-status").innerHTML = vwStatusHtml(vw);
+
+    var text = vw.enabled && s.mvr_loaded ? vwBannerText(vw, s) : "";
+    var show = !!text && !localState.vwBannerDismissed;
+    $("vw-banner").classList.toggle("hidden", !show);
+    if (show) $("vw-banner-text").innerHTML = text;
   }
 
   function isFilterProblem(assignment) {
@@ -953,6 +1036,9 @@
     }
     if (assignment.source === "share") {
       return '<span class="badge tone-brand" title="Per GDTF-Share-Download zugeordnet.">Share</span>';
+    }
+    if (assignment.source === "vectorwatch") {
+      return '<span class="badge tone-brand" title="Aus dem passenden VectorWatch-Projekt übernommen.">VectorWatch</span>';
     }
     return '<span class="badge tone-ondark" title="Aus deinem lokalen GDTF-Bibliotheksordner zugeordnet.">Bibliothek</span>';
   }
@@ -1212,6 +1298,20 @@
     });
     $("chk-gruppieren").addEventListener("change", function (e) {
       callApi("set_grouping", e.target.checked);
+    });
+    // Delegiert: der Toggle-Link wird bei jedem Render neu erzeugt,
+    // der #vw-status-Container selbst bleibt bestehen.
+    $("vw-status").addEventListener("click", function (e) {
+      var link = e.target.closest("#btn-vw-toggle");
+      if (!link) return;
+      e.preventDefault();
+      var s = serverState || EMPTY_STATE;
+      var vw = s.vectorwatch || EMPTY_STATE.vectorwatch;
+      callApi("set_vectorwatch_sync", !vw.enabled);
+    });
+    $("vw-banner-close").addEventListener("click", function () {
+      localState.vwBannerDismissed = true;
+      $("vw-banner").classList.add("hidden");
     });
     $("seg-layer-mode").addEventListener("click", function (e) {
       var btn = e.target.closest(".seg-btn");
