@@ -30,6 +30,7 @@ class Settings:
     export_layer_mode: str = "single"
     share_user: str = ""
     share_password_enc: str = ""
+    vectorwatch_sync: bool = True
     base_dir: str = dataclasses.field(default="", repr=False, compare=False)
 
     @classmethod
@@ -72,6 +73,7 @@ class Settings:
         settings = cls(**kwargs)
         if settings.export_layer_mode not in ("single", "per_layer"):
             settings.export_layer_mode = "single"
+        settings.vectorwatch_sync = bool(settings.vectorwatch_sync)
         settings.base_dir = resolved_base_dir
         return settings
 
@@ -89,6 +91,7 @@ class Settings:
             "export_layer_mode": self.export_layer_mode,
             "share_user": self.share_user,
             "share_password_enc": self.share_password_enc,
+            "vectorwatch_sync": self.vectorwatch_sync,
         }
 
         fd, tmp_path = tempfile.mkstemp(dir=base_dir, prefix=".config-", suffix=".tmp")

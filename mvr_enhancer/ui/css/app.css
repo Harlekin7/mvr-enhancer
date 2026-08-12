@@ -870,3 +870,16 @@ input.sel-dark:focus { border-color: var(--blue-400); }
 }
 .toast-error { border-color: rgba(214, 69, 69, 0.5); background: rgba(214, 69, 69, 0.16); }
 .toast-info { border-color: rgba(47, 158, 110, 0.4); background: rgba(47, 158, 110, 0.14); }
+
+/* ── VectorWatch-Abgleich (Schritt 2) ── */
+.vw-banner { margin-bottom: 14px; flex: none; }
+.vw-banner-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}

@@ -17,7 +17,7 @@
     <span class="header-sep"></span>
     <span class="subbrand">MVR Export</span>
     <span class="header-spacer"></span>
-    <span class="version-string">v0.5.0 &middot; DIN SPEC 15801 &middot; MVR 1.6</span>
+    <span class="version-string">v1.0.0 &middot; DIN SPEC 15801 &middot; MVR 1.6</span>
     <span class="icon ic-18 ic-blue200" data-icon="settings-2" title="Einstellungen"></span>
   </header>
 
@@ -121,6 +121,14 @@
 
                 <p class="intro-sentence">Jeder Typ braucht eine konkrete GDTF-Datei im richtigen DMX-Modus &mdash; Vorschl&auml;ge kommen aus dem Score-Matching, du hast das letzte Wort.</p>
 
+                <div id="vw-banner" class="warn-row neutral vw-banner hidden">
+                  <span class="icon ic-16 ic-blue300" data-icon="link-2"></span>
+                  <span id="vw-banner-text"></span>
+                  <button id="vw-banner-close" type="button" class="vw-banner-close" title="Hinweis ausblenden">
+                    <span class="icon ic-15 ic-muted" data-icon="x"></span>
+                  </button>
+                </div>
+
                 <div id="sources-bar" class="card sources-bar">
                   <div class="source-item">
                     <span class="icon ic-17 ic-blue300" data-icon="folder-open"></span>
@@ -142,6 +150,14 @@
                         <span class="muted">nicht angemeldet</span>
                         <button id="btn-share-login" type="button" class="btn btn-outline btn-sm" title="Meldet dich an der &ouml;ffentlichen GDTF-Share-Datenbank an, um fehlende GDTFs zu suchen und herunterzuladen.">Anmelden</button>
                       </div>
+                    </div>
+                  </div>
+                  <span class="v-sep"></span>
+                  <div class="source-item">
+                    <span class="icon ic-17 ic-blue300" data-icon="link-2"></span>
+                    <div>
+                      <div class="source-label">VectorWatch</div>
+                      <div id="vw-status" class="share-status" title="&Uuml;bernimmt beim Laden einer MVR automatisch die GDTF-Zuordnungen des passenden VectorWatch-Projekts (gleicher Rechner)."></div>
                     </div>
                   </div>
                   <span class="v-sep"></span>

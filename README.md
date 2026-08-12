@@ -30,7 +30,15 @@ In der Quellen-Leiste von Schritt 2 schaltest du zwischen zwei Modi um:
 - In der Quellen-Leiste (Schritt 2) wählst du einen lokalen Ordner mit GDTF-Dateien als Bibliothek. Der Ordner wird gescannt, die Fixtures stehen danach als Score-Vorschläge zur Verfügung.
 - Optional kannst du dich mit deinem [GDTF Share](https://www.gdtf-share.com/)-Account anmelden, um fehlende Fixtures direkt zu suchen und in deine Bibliothek zu laden — ohne den Umweg über den Browser.
 
-## Bekannte Grenzen (v0.5.0)
+## VectorWatch-Abgleich
+
+Läuft auf demselben Rechner [VectorWatch](https://github.com/Harlekin7/Vectorworks-Tool-GPA), übernimmt der Enhancer beim Laden einer MVR automatisch das dort bereits gepflegte GDTF-Matching:
+
+- Nach dem Laden sucht der Enhancer das VectorWatch-Projekt, dessen Name zur MVR-Datei passt, und prüft über den Fixture-Bestand des Projekts, ob es inhaltlich dazugehört (mindestens 70 % der Typen müssen bekannt sein — ein Namens-Zufallstreffer wird so verworfen).
+- Passt das Projekt, werden dessen manuelle GDTF-Zuordnungen und DMX-Modi übernommen (Quelle „VectorWatch" in der Tabelle); fehlende GDTF-Dateien werden aus der VectorWatch-Bibliothek in deine Bibliothek kopiert. Ein in VectorWatch bewusst gesetztes „kein Match" bleibt auch hier unzugeordnet.
+- Alles passiert im Hintergrund und ist rein lesend — ohne VectorWatch-Installation oder ohne passendes Projekt verhält sich die App exakt wie bisher. Eine Hinweiszeile in Schritt 2 zeigt das Ergebnis; der Abgleich lässt sich in der Quellen-Leiste deaktivieren.
+
+## Bekannte Grenzen (v1.0.0)
 
 - Fixtures mit mehreren DMX-Breaks werden aktuell als Single-Break gelesen — die Adress-Kollisionsprüfung kann Kollisionen dadurch unterschätzen.
 - Ein Footprint, der über eine 512-Kanal-Universumsgrenze reicht, wird vollständig dem Start-Universum zugerechnet.

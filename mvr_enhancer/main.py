@@ -9,6 +9,7 @@ from pathlib import Path
 import webview
 
 from mvr_enhancer.api import Api
+from mvr_enhancer.winui import apply_dark_titlebar
 
 log = logging.getLogger(__name__)
 
@@ -133,6 +134,14 @@ def run() -> None:
             log.exception("Drag&Drop-Registrierung fehlgeschlagen")
 
     window.events.loaded += _register_dropzone_dnd
+
+    def _apply_dark_titlebar() -> None:
+        # Erst nach "shown" existiert das native Fenster samt Handle. Auf
+        # Windows 11 ist die Titelleiste bereits systemseitig dunkel schaltbar,
+        # Windows 10 laesst sie ohne diesen DWM-Aufruf dauerhaft weiss.
+        apply_dark_titlebar(window, _WINDOW_TITLE)
+
+    window.events.shown += _apply_dark_titlebar
 
     debug = os.environ.get("MVR_ENHANCER_DEBUG") == "1"
     webview.start(debug=debug)

@@ -40,6 +40,7 @@ from mvr_enhancer.core.gdtf import (
     MATCH_THRESHOLD,
     GdtfFixture,
     find_all_gdtf_suggestions,
+    import_gdtf,
     invalidate_gdtf_cache,
     load_gdtf_library,
 )
@@ -52,6 +53,7 @@ from mvr_enhancer.core.models import (
 )
 from mvr_enhancer.core.mvr_reader import _is_unsafe_entry_name, read_mvr
 from mvr_enhancer.core.share import GdtfShareClient
+from mvr_enhancer.core.vectorwatch import VectorWatchProvider, VwAssignment
 from mvr_enhancer.settings import Settings
 from mvr_enhancer.winsec import decrypt_password, encrypt_password
 
@@ -103,6 +105,14 @@ def _resolve_initial_mode(existing_mode: str, modes: list[dict]) -> tuple[str, b
 
 _EMPTY_WARNINGS = {"fallbacks": [], "collisions": [], "cleanup_preview": None}
 _EMPTY_EXPORT_STATE = {"done": False, "path": "", "size_mb": 0.0, "time": ""}
+# "idle" = noch kein Abgleich gelaufen (kein MVR geladen bzw. Abgleich aus).
+_EMPTY_VW_SYNC = {
+    "status": "idle",
+    "project_name": "",
+    "coverage": 0.0,
+    "applied": 0,
+    "total": 0,
+}
 
 
 class Api:
@@ -119,6 +129,7 @@ class Api:
         self._share = GdtfShareClient(
             cache_path=os.path.join(self._settings.base_dir, "share_list_cache.json")
         )
+        self._vectorwatch = VectorWatchProvider()
 
         self._scene = None
         self._types: list[FixtureType] = []
@@ -139,6 +150,7 @@ class Api:
 
         self._warnings = dict(_EMPTY_WARNINGS)
         self._export_state = dict(_EMPTY_EXPORT_STATE)
+        self._vw_sync = dict(_EMPTY_VW_SYNC)
 
     # ──── Fenster-/Event-Wiring ────
 
@@ -347,6 +359,10 @@ class Api:
                         "count": len(self._gdtf_library),
                         "files": sorted(self._gdtf_library.keys(), key=str.casefold),
                     },
+                    "vectorwatch": {
+                        "enabled": self._settings.vectorwatch_sync,
+                        **self._vw_sync,
+                    },
                     "recent": recent,
                     "warnings": copy.deepcopy(self._warnings),
                     "export": {**self._export_state, "default_path": self._default_export_path()},
@@ -469,6 +485,13 @@ class Api:
         library_dir = self._settings.gdtf_library_dir
         gdtf_library = load_gdtf_library(library_dir) if library_dir else {}
 
+        vw_sync = dict(_EMPTY_VW_SYNC)
+        vw_by_name: dict[str, VwAssignment] = {}
+        if self._settings.vectorwatch_sync and types:
+            vw_sync, vw_by_name, gdtf_library = self._sync_from_vectorwatch(
+                os.path.basename(path), types, library_dir, gdtf_library
+            )
+
         fixture_names = [t.name for t in types]
         suggestions = find_all_gdtf_suggestions(fixture_names, gdtf_library, {})
 
@@ -493,7 +516,28 @@ class Api:
             candidates[fixture_type.key] = candidate_list
 
             assignment = Assignment()
-            if candidate_list and candidate_list[0].score >= MATCH_THRESHOLD:
+            vw = vw_by_name.get(fixture_type.name)
+            if vw is not None and vw.source == "none":
+                # In VectorWatch bewusst ohne Match ("kein Match gewuenscht"):
+                # unzugeordnet lassen, kein lokales Auto-Matching darueber.
+                pass
+            elif vw is not None and vw.gdtf_name in gdtf_library:
+                fixture = gdtf_library[vw.gdtf_name]
+                modes = [
+                    {"name": m.name, "channel_count": m.channel_count}
+                    for m in fixture.modes
+                ]
+                mode_name, confirmed = _resolve_initial_mode(
+                    vw.mode or fixture_type.existing_mode, modes
+                )
+                assignment = Assignment(
+                    gdtf_name=vw.gdtf_name,
+                    mode_name=mode_name,
+                    removed=False,
+                    mode_is_fallback=not confirmed,
+                    source="vectorwatch",
+                )
+            elif candidate_list and candidate_list[0].score >= MATCH_THRESHOLD:
                 best = candidate_list[0]
                 mode_name, confirmed = _resolve_initial_mode(
                     fixture_type.existing_mode, best.modes
@@ -506,6 +550,13 @@ class Api:
                     source="library",
                 )
             assignments[fixture_type.key] = assignment
+
+        if vw_sync["status"] == "matched":
+            vw_sync["applied"] = sum(
+                1
+                for a in assignments.values()
+                if a.source == "vectorwatch" and a.gdtf_name
+            )
 
         self._emit({"type": "progress", "method": "load_mvr", "data": {"phase": "match", "percent": 95}})
 
@@ -533,6 +584,7 @@ class Api:
             self._warnings = dict(_EMPTY_WARNINGS)
             self._export_state = dict(_EMPTY_EXPORT_STATE)
             self._file_meta = file_meta
+            self._vw_sync = vw_sync
 
             self._settings.add_recent(path)
             self._settings.save()
@@ -544,6 +596,65 @@ class Api:
                 log.exception("Fenstertitel konnte nicht aktualisiert werden")
 
         return {"ok": True, "data": self.get_state()["data"]}
+
+    def _sync_from_vectorwatch(
+        self,
+        mvr_name: str,
+        types: list[FixtureType],
+        library_dir: str,
+        gdtf_library: dict[str, GdtfFixture],
+    ) -> tuple[dict, dict[str, VwAssignment], dict[str, GdtfFixture]]:
+        """Holt die GDTF-Zuordnungen des zur MVR passenden VectorWatch-Projekts.
+
+        Laeuft im Ladepfad von ``_do_load_mvr`` und ist fail-silent: jeder
+        Fehler landet als Status im zurueckgegebenen State-Dict, nie als
+        Exception — das MVR-Laden darf am Abgleich niemals scheitern.
+        Im eigenen Bibliotheksordner fehlende GDTF-Dateien werden per
+        ``import_gdtf`` aus der VectorWatch-Bibliothek kopiert (Dateiname =
+        Identitaet; gleicher Name bedeutet nach GDTF-Konvention
+        ``Manufacturer@Fixture@Revision`` dieselbe Revision).
+
+        Returns:
+            ``(state, vw_by_name, gdtf_library)`` — das State-Dict fuer
+            ``self._vw_sync``, die Zuordnungen pro Typ-Anzeigename und die
+            (nach Imports ggf. frisch geladene) eigene Bibliothek.
+        """
+        state = dict(_EMPTY_VW_SYNC)
+        state["total"] = len(types)
+        try:
+            if not self._vectorwatch.is_available():
+                state["status"] = "unavailable"
+                return state, {}, gdtf_library
+            result = self._vectorwatch.get_assignments(
+                mvr_name, [t.name for t in types]
+            )
+            state["status"] = result.status
+            state["project_name"] = result.project_name
+            state["coverage"] = round(result.coverage, 2)
+            if result.status != "matched":
+                return state, {}, gdtf_library
+            if not library_dir:
+                state["status"] = "library_missing"
+                return state, {}, gdtf_library
+
+            imported = False
+            for vw in result.assignments:
+                if vw.source == "none" or not vw.gdtf_file:
+                    continue
+                dest = os.path.join(library_dir, os.path.basename(vw.gdtf_file))
+                if os.path.isfile(dest):
+                    continue
+                if import_gdtf(vw.gdtf_file, library_dir) is not None:
+                    imported = True
+            if imported:
+                gdtf_library = load_gdtf_library(library_dir, force_reload=True)
+
+            vw_by_name = {vw.type_name: vw for vw in result.assignments}
+            return state, vw_by_name, gdtf_library
+        except Exception:  # noqa: BLE001 — fail-silent Vertrag, siehe Docstring
+            log.exception("VectorWatch-Abgleich fehlgeschlagen")
+            state["status"] = "error"
+            return state, {}, gdtf_library
 
     def on_dropzone_drop(self, event) -> None:
         """pywebview-DOM-Drop auf #dropzone (laeuft in einem pywebview-Thread).
@@ -586,6 +697,7 @@ class Api:
                 self._file_meta = {}
                 self._warnings = dict(_EMPTY_WARNINGS)
                 self._export_state = dict(_EMPTY_EXPORT_STATE)
+                self._vw_sync = dict(_EMPTY_VW_SYNC)
 
             if self._window is not None:
                 try:
@@ -694,6 +806,21 @@ class Api:
         except Exception as e:
             log.exception("set_layer_mode fehlgeschlagen")
             return {"ok": False, "error": f"Export-Modus konnte nicht gesetzt werden: {e}"}
+
+    def set_vectorwatch_sync(self, flag: bool) -> dict:
+        """Schaltet den automatischen VectorWatch-Abgleich an/aus (persistiert).
+
+        Wirkt ab dem naechsten MVR-Laden; bereits uebernommene Zuordnungen
+        bleiben unveraendert bestehen.
+        """
+        try:
+            with self._lock:
+                self._settings.vectorwatch_sync = bool(flag)
+                self._settings.save()
+            return {"ok": True, "data": self.get_state()["data"]}
+        except Exception as e:
+            log.exception("set_vectorwatch_sync fehlgeschlagen")
+            return {"ok": False, "error": f"Einstellung konnte nicht gesetzt werden: {e}"}
 
     # ──── GDTF-Bibliothek ────
 
