@@ -29,6 +29,19 @@ _CAPTION_COLORREF = 0x001F1308
 
 # SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED
 _SWP_REDRAW_FRAME = 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020
+# SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE (Groesse WIRD geaendert)
+_SWP_NUDGE = 0x0002 | 0x0004 | 0x0010
+
+
+class _Rect(ctypes.Structure):
+    """Win32-RECT (left/top/right/bottom) fuer GetWindowRect."""
+
+    _fields_ = [
+        ("left", ctypes.c_long),
+        ("top", ctypes.c_long),
+        ("right", ctypes.c_long),
+        ("bottom", ctypes.c_long),
+    ]
 
 
 def _windows_build() -> int:
@@ -104,9 +117,23 @@ def apply_dark_titlebar(window, title: str) -> None:
             dwm.DwmSetWindowAttribute(
                 hwnd, _DWMWA_BORDER_COLOR, ctypes.byref(color), ctypes.sizeof(color)
             )
-        # Nicht-Client-Bereich neu zeichnen lassen: ohne diesen Anstoss bleibt
-        # die Titelleiste auf Windows 10 bis zum naechsten Fokuswechsel hell.
+        # Nicht-Client-Bereich neu zeichnen lassen. SWP_FRAMECHANGED allein
+        # reicht auf Windows 10 nicht — die Leiste bliebe bis zur ersten
+        # Aktivierung (Klick) hell. Der 1-Pixel-Groessen-Nudge zwingt DWM,
+        # die Titelleiste sofort neu zu kompositieren; danach wird die
+        # Originalgroesse wiederhergestellt.
         ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, _SWP_REDRAW_FRAME)
+        rect = _Rect()
+        if ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            width = rect.right - rect.left
+            height = rect.bottom - rect.top
+            if width > 0 and height > 1:
+                ctypes.windll.user32.SetWindowPos(
+                    hwnd, 0, 0, 0, width, height - 1, _SWP_NUDGE
+                )
+                ctypes.windll.user32.SetWindowPos(
+                    hwnd, 0, 0, 0, width, height, _SWP_NUDGE
+                )
         log.info("Dunkle Titelleiste aktiviert (hwnd=%s)", hwnd)
     except (AttributeError, OSError):
         log.warning("Dunkle Titelleiste konnte nicht gesetzt werden", exc_info=True)

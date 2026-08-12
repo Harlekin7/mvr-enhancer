@@ -38,7 +38,7 @@ Läuft auf demselben Rechner [VectorWatch](https://github.com/Harlekin7/Vectorwo
 - Passt das Projekt, werden dessen manuelle GDTF-Zuordnungen und DMX-Modi übernommen (Quelle „VectorWatch" in der Tabelle); fehlende GDTF-Dateien werden aus der VectorWatch-Bibliothek in deine Bibliothek kopiert. Ein in VectorWatch bewusst gesetztes „kein Match" bleibt auch hier unzugeordnet.
 - Alles passiert im Hintergrund und ist rein lesend — ohne VectorWatch-Installation oder ohne passendes Projekt verhält sich die App exakt wie bisher. Eine Hinweiszeile in Schritt 2 zeigt das Ergebnis; der Abgleich lässt sich in der Quellen-Leiste deaktivieren.
 
-## Bekannte Grenzen (v1.0.0)
+## Bekannte Grenzen (v1.0.1)
 
 - Fixtures mit mehreren DMX-Breaks werden aktuell als Single-Break gelesen — die Adress-Kollisionsprüfung kann Kollisionen dadurch unterschätzen.
 - Ein Footprint, der über eine 512-Kanal-Universumsgrenze reicht, wird vollständig dem Start-Universum zugerechnet.
