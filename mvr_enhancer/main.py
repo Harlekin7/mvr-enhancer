@@ -136,11 +136,17 @@ def run() -> None:
     window.events.loaded += _register_dropzone_dnd
 
     def _apply_dark_titlebar() -> None:
-        # Erst nach "shown" existiert das native Fenster samt Handle. Auf
-        # Windows 11 ist die Titelleiste bereits systemseitig dunkel schaltbar,
+        # Auf Windows 11 ist die Titelleiste systemseitig dunkel schaltbar,
         # Windows 10 laesst sie ohne diesen DWM-Aufruf dauerhaft weiss.
         apply_dark_titlebar(window, _WINDOW_TITLE)
 
+    # Bevorzugt VOR dem ersten Anzeigen (pywebview >= 5.1: before_show) —
+    # dann startet das Fenster ohne weisses Aufblitzen direkt dunkel.
+    # "shown" bleibt als Fallback fuer aeltere pywebview-Versionen und
+    # als zweiter, idempotenter Durchlauf verdrahtet.
+    before_show = getattr(window.events, "before_show", None)
+    if before_show is not None:
+        before_show += _apply_dark_titlebar
     window.events.shown += _apply_dark_titlebar
 
     debug = os.environ.get("MVR_ENHANCER_DEBUG") == "1"

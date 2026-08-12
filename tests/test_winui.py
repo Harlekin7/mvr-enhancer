@@ -47,7 +47,12 @@ class _FakeUser32:
         self.setwindowpos_calls = []
 
     def SetWindowPos(self, hwnd, after, x, y, w, h, flags):  # noqa: N802
-        self.setwindowpos_calls.append((hwnd, flags))
+        self.setwindowpos_calls.append((hwnd, w, h, flags))
+        return 1
+
+    def GetWindowRect(self, hwnd, rect_ref):  # noqa: N802
+        rect = ctypes.cast(rect_ref, ctypes.POINTER(winui._Rect)).contents
+        rect.left, rect.top, rect.right, rect.bottom = 100, 100, 900, 700
         return 1
 
     def FindWindowW(self, cls, title):  # noqa: N802
@@ -93,8 +98,13 @@ def test_sets_dark_mode_and_redraws_frame_on_windows_10(monkeypatch):
     attrs = [attr for _hwnd, attr, _value in dwm.calls]
     assert winui._DWMWA_CAPTION_COLOR not in attrs
     assert winui._DWMWA_BORDER_COLOR not in attrs
-    # Frame-Redraw muss angestossen werden, sonst bleibt die Leiste weiss.
-    assert user32.setwindowpos_calls == [(42, winui._SWP_REDRAW_FRAME)]
+    # Frame-Redraw plus 1-Pixel-Nudge (hin und zurueck) muessen angestossen
+    # werden, sonst bleibt die Leiste bis zum ersten Klick weiss.
+    assert user32.setwindowpos_calls == [
+        (42, 0, 0, winui._SWP_REDRAW_FRAME),
+        (42, 800, 599, winui._SWP_NUDGE),
+        (42, 800, 600, winui._SWP_NUDGE),
+    ]
 
 
 def test_falls_back_to_old_attribute_on_old_windows_10(monkeypatch):
