@@ -3,6 +3,11 @@
 Alle nennenswerten Änderungen des MVR Enhancers, neueste Version zuerst.
 Die Abschnitte sind 1:1 als Beschreibungstexte der [GitHub-Releases](https://github.com/Harlekin7/mvr-enhancer/releases) gedacht.
 
+## v1.0.2 — 2026-08-26
+
+### Behoben
+- **Astera-Fixtures kamen in grandMA3 nicht an:** GDTF Share schreibt die Revision in den Dateinamen und kodiert Sonderzeichen dabei URL-artig. Asteras Revision heißt „tested by Astera / V3" — der Schrägstrich lag also als `%2F` im Dateinamen. Beim Export wurde der Name komplett dekodiert, wodurch aus dem `%2F` ein echter `/` wurde. Im ZIP ist das ein Pfadtrenner: die GDTF landete in einem Unterordner statt flach im Archiv-Root, und der `GDTFSpec`-Verweis trug denselben Schrägstrich mit. grandMA3 konnte die Datei dadurch nicht auflösen und hat sämtliche Fixtures dieser Typen beim Import verworfen — im Referenzprojekt betraf das 22 von 39 Fixtures (AX9 PowerPAR, FP6 HydraPanel, FP3 Hyperion Tube). Fixture-Typen ohne Schrägstrich in der Revision waren nie betroffen. Pfadtrenner werden jetzt zu `_` geglättet, sodass jede GDTF flach im Archiv-Root liegt.
+
 ## v1.0.1 — 2026-08-12
 
 ### Behoben

@@ -73,9 +73,29 @@ _STRIP_TAGS = {"CustomCommands", "Position"}
 
 
 def _clean_gdtf_name(name: str) -> str:
-    """URL-dekodiert GDTF-Dateinamen (%40 -> @ etc.)."""
-    decoded = urllib.parse.unquote(name)
-    return decoded.replace("%40", "@")
+    """URL-dekodiert GDTF-Dateinamen (%40 -> @ etc.) zu einem *flachen* Namen.
+
+    GDTF Share kodiert die Revision in den Download-Dateinamen. Enthaelt die
+    Revision einen Schraegstrich — Astera liefert "tested by Astera / V3" —,
+    liegt die Datei als ``...%40tested_by_Astera_%2F_V3.gdtf`` in der
+    Bibliothek. Ein reines ``unquote`` macht daraus ein echtes ``/``, und das
+    ist im ZIP ein Pfadtrenner: die GDTF landet in einem *Unterordner* und der
+    ``GDTFSpec``-Verweis traegt denselben Schraegstrich. Das ist kein
+    Traversal (``_safe_zip_target`` laesst es durch), aber MVR verlangt
+    GDTF-Pakete im Archiv-Root — grandMA3 findet sie sonst nicht und
+    verwirft saemtliche Fixtures dieser Typen. Pfadtrenner werden deshalb
+    nach dem Dekodieren zu ``_`` geglaettet; das entspricht genau der
+    Schreibweise, die GDTF Share beim Dekodieren selbst verwendet.
+
+    Namen, die dekodiert aus dem Archiv-Root *ausbrechen* wuerden, bleiben
+    bewusst unveraendert: sie sollen nicht durch Glaettung harmlos gemacht
+    und mitgeschrieben, sondern von ``_safe_zip_target`` verworfen und als
+    entfernt gemeldet werden.
+    """
+    decoded = urllib.parse.unquote(name).replace("%40", "@")
+    if _is_unsafe_entry_name(decoded):
+        return decoded
+    return decoded.replace("\\", "_").replace("/", "_")
 
 
 def _safe_zip_target(name: str) -> str | None:

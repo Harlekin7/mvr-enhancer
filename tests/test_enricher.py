@@ -992,3 +992,67 @@ def test_per_layer_without_layer_infos_falls_back_to_single_3d_group(tmp_path):
     group_3d = export_layer.find("./ChildList/GroupObject[@name='3D']")
     assert group_3d is not None
     assert [el.get("name") for el in group_3d.findall("./ChildList/SceneObject")] == ["Truss A"]
+
+
+def test_percent_2f_in_library_filename_stays_at_archive_root(tmp_path):
+    """A ``%2F`` in a library filename must not become a ZIP directory.
+
+    Real-world regression (OSWALD Tour): GDTF Share encodes the revision into
+    the download filename, so a revision containing a slash — Astera ships
+    "tested by Astera / V3" — arrives on disk as
+    ``...%40...%40tested_by_Astera_%2F_V3.gdtf``. ``_clean_gdtf_name``
+    URL-decoded that ``%2F`` back into a real ``/``, which ZIP interprets as a
+    path separator: the GDTF landed in a *subdirectory* and the ``<GDTFSpec>``
+    carried the same slash. That is not a traversal (``_safe_zip_target``
+    passes it), but MVR requires GDTF packages at the archive root, so
+    grandMA3 could not resolve them and dropped every fixture of those types.
+    """
+    library_dir = tmp_path / "library"
+    build_gdtf(
+        library_dir / "Astera_LED_Technology%40FP6_HydraPanel"
+                      "%40tested_by_Astera_%2F_V3.gdtf",
+        manufacturer="Astera LED Technology",
+        name="FP6 HydraPanel",
+        modes=(("6: DIM RGBAW", 6),),
+    )
+    gdtf_library = load_gdtf_library(str(library_dir), force_reload=True)
+
+    mvr_path = build_mvr(
+        tmp_path / "scene.mvr",
+        fixtures=[
+            {"name": "FP6 HydraPanel", "uuid": "11111111-1111-1111-1111-111111111111",
+             "address": 1, "gdtf_spec": "Custom@Astera_FP6_Hydra_Panel.gdtf"},
+        ],
+    )
+
+    scene = read_mvr(str(mvr_path))
+    types = aggregate_fixture_types(scene)
+    key = types[0].key
+    assignments = {key: Assignment(gdtf_name="FP6 HydraPanel", mode_name="6: DIM RGBAW")}
+
+    result = enrich_mvr(scene, types, assignments, str(library_dir), gdtf_library)
+
+    out_path = tmp_path / "out.mvr"
+    out_path.write_bytes(result.data)
+
+    with zipfile.ZipFile(out_path) as zf:
+        names = zf.namelist()
+        xml_root = ET.fromstring(zf.read("GeneralSceneDescription.xml"))
+
+    gdtf_entries = [n for n in names if n.lower().endswith(".gdtf")]
+    assert gdtf_entries, "the assigned GDTF must be embedded at all"
+    for entry in gdtf_entries:
+        assert "/" not in entry, f"GDTF must live at the archive root, got {entry!r}"
+        assert "\\" not in entry, f"GDTF must live at the archive root, got {entry!r}"
+
+    # The reference the console resolves must name an entry that actually
+    # exists at the root — spec text and ZIP entry are written from the same
+    # cleaned name, so a drift between them would break the import too.
+    spec = xml_root.find(".//Fixture/GDTFSpec").text
+    assert spec in set(names)
+    assert "/" not in spec
+
+    # The GDTF must still be embedded exactly once and be readable.
+    assert len(gdtf_entries) == 1
+    assert result.report.embedded_gdtf_count == 1
+    assert result.report.cleanup.orphan_gdtf_names == []
